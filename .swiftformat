@@ -1,0 +1,2 @@
+# Disable trailingCommas: conflicts with swiftlint trailing_comma rule
+--disable trailingCommas

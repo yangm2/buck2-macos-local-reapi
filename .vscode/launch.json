@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:buck2-macos-local-reapi}",
+            "name": "Debug reapi-shim",
+            "target": "reapi-shim",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug reapi-shim"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:buck2-macos-local-reapi}",
+            "name": "Release reapi-shim",
+            "target": "reapi-shim",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release reapi-shim"
+        }
+    ]
+}

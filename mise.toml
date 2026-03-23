@@ -1,0 +1,41 @@
+[tools]
+swiftformat = "0.60.1"
+swiftlint = "0.63.2"
+protoc = "24.4"
+
+[tasks."clean:spill"]
+description = "Remove Swift index-build artefacts that spill to the package root"
+# These are emitted by the VS Code Swift extension's background indexing
+# process and cannot be redirected by any current toolchain setting.
+run = "rm -f *.d *.swiftmodule *.swiftdeps *.dia"
+
+[tasks.clean]
+description = "Full clean: spill artefacts + SPM build directory"
+depends = ["clean:spill"]
+run = "rm -rf .build"
+
+[tasks.build]
+description = "Build the shim (debug)"
+# PROTOC_PATH is required by the GRPCProtobufGenerator SPM plugin.
+run = "PROTOC_PATH=$(which protoc) swift build"
+
+[tasks.run]
+description = "Build and run the shim with defaults"
+depends = ["build"]
+run = "swift run reapi-shim"
+
+[tasks.fmt]
+description = "Format all Swift sources in-place"
+run = "swiftformat Sources Tests"
+
+[tasks."fmt:check"]
+description = "Check formatting without modifying files (CI)"
+run = "swiftformat Sources Tests --lint"
+
+[tasks.lint]
+description = "Lint all Swift sources"
+run = "swiftlint lint --strict Sources Tests"
+
+[tasks.test]
+description = "Run the test suite"
+run = "PROTOC_PATH=$(which protoc) swift test"

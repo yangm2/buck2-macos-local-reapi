@@ -1,0 +1,9 @@
+.DS_Store
+.build/
+.swiftpm/
+
+# Swift compiler index-build artefacts spilled to package root
+*.swiftmodule
+*.swiftdeps
+*.dia
+*.d
