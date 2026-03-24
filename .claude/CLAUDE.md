@@ -41,7 +41,7 @@ Pinned versions — verify against upstream before bumping.
 | swiftformat | 0.60.1 | https://github.com/nicklockwood/SwiftFormat/releases |
 | swiftlint | 0.63.2 | https://github.com/realm/SwiftLint/releases |
 | protoc | 24.4 | https://github.com/protocolbuffers/protobuf/releases |
-| grpc-swift | 2.2.3 (migrate to [grpc-swift-2](https://github.com/grpc/grpc-swift-2) ≥ 2.3.0 in Phase 1 — original repo is maintenance-only after 2.2.3) | https://github.com/grpc/grpc-swift/releases |
+| grpc-swift-2 | 2.3.0 | https://github.com/grpc/grpc-swift-2/releases |
 | grpc-swift-protobuf | 2.2.1 | https://github.com/grpc/grpc-swift-protobuf/releases |
 | grpc-swift-nio-transport | 2.5.0 | https://github.com/grpc/grpc-swift-nio-transport/releases |
 | swift-argument-parser | 1.7.1 | https://github.com/apple/swift-argument-parser/releases |

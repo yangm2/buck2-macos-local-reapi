@@ -1157,8 +1157,8 @@ flowchart TD
 
 **Dependencies**
 
-- Migrate `grpc-swift` from `github.com/grpc/grpc-swift` (maintenance-only after 2.2.3) to the canonical v2 repo `github.com/grpc/grpc-swift-2` (active development, currently 2.3.0). Companion packages `grpc-swift-protobuf` and `grpc-swift-nio-transport` stay at their original URLs.
-- Bump `grpc-swift-protobuf` (→ 2.2.1) and `grpc-swift-nio-transport` (→ 2.5.0) to resolve the `ProtobufSerializer`/`ProtobufDeserializer` deprecation warnings in generated stubs.
+- ~~Migrate `grpc-swift` from `github.com/grpc/grpc-swift` (maintenance-only after 2.2.3) to the canonical v2 repo `github.com/grpc/grpc-swift-2` (active development, currently 2.3.0). Companion packages `grpc-swift-protobuf` and `grpc-swift-nio-transport` stay at their original URLs.~~ ✓ Done
+- ~~Bump `grpc-swift-protobuf` (→ 2.2.1) and `grpc-swift-nio-transport` (→ 2.5.0) to resolve the `ProtobufSerializer`/`ProtobufDeserializer` deprecation warnings in generated stubs.~~ ✓ Done
 
 **Validation**
 
