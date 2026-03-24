@@ -1,3 +1,4 @@
 {
-    "swift.buildPath": ".build"
+    "swift.buildPath": ".build",
+    "PeerStudios.buck2-lsp-adapter.enable": false
 }
