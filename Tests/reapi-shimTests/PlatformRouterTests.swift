@@ -51,8 +51,8 @@ private func platform(
 // MARK: - Routing tests
 
 struct PlatformRouterTests {
-    @Test("Empty platform routes to local executor")
-    func emptyPlatformRoutesLocal() async throws {
+    @Test
+    func `empty platform routes to local executor`() async throws {
         let cas = try makeTempCAS()
         let mockLocal = MockExecutor()
         let mockRemote = MockExecutor()
@@ -66,8 +66,8 @@ struct PlatformRouterTests {
         #expect(await mockRemote.callCount == 0)
     }
 
-    @Test("requires-gpu=true routes to remote executor")
-    func gpuRequiredRoutesRemote() async throws {
+    @Test
+    func `requires-gpu=true routes to remote executor`() async throws {
         let cas = try makeTempCAS()
         let mockLocal = MockExecutor()
         let mockRemote = MockExecutor()
@@ -78,8 +78,8 @@ struct PlatformRouterTests {
         #expect(await mockRemote.callCount == 1)
     }
 
-    @Test("OSFamily=macos routes to remote executor")
-    func macOSFamilyRoutesRemote() async throws {
+    @Test
+    func `OSFamily=macos routes to remote executor`() async throws {
         let cas = try makeTempCAS()
         let mockLocal = MockExecutor()
         let mockRemote = MockExecutor()
@@ -90,8 +90,8 @@ struct PlatformRouterTests {
         #expect(await mockRemote.callCount == 1)
     }
 
-    @Test("OSFamily=linux routes to local executor")
-    func linuxFamilyRoutesLocal() async throws {
+    @Test
+    func `OSFamily=linux routes to local executor`() async throws {
         let cas = try makeTempCAS()
         let mockLocal = MockExecutor()
         let mockRemote = MockExecutor()
@@ -102,8 +102,8 @@ struct PlatformRouterTests {
         #expect(await mockRemote.callCount == 0)
     }
 
-    @Test("min-ram above 16 GiB routes to remote executor")
-    func highMemoryRoutesRemote() async throws {
+    @Test
+    func `min-ram above 16 GiB routes to remote executor`() async throws {
         let cas = try makeTempCAS()
         let mockLocal = MockExecutor()
         let mockRemote = MockExecutor()
@@ -114,8 +114,8 @@ struct PlatformRouterTests {
         #expect(await mockRemote.callCount == 1)
     }
 
-    @Test("min-ram at 16 GiB routes to local executor")
-    func exactMemoryThresholdRoutesLocal() async throws {
+    @Test
+    func `min-ram at 16 GiB routes to local executor`() async throws {
         let cas = try makeTempCAS()
         let mockLocal = MockExecutor()
         let mockRemote = MockExecutor()
@@ -126,8 +126,8 @@ struct PlatformRouterTests {
         #expect(await mockRemote.callCount == 0)
     }
 
-    @Test("No remote configured: GPU action still routes to local")
-    func noRemoteAlwaysLocal() async throws {
+    @Test
+    func `no remote configured: GPU action still routes to local`() async throws {
         let cas = try makeTempCAS()
         let mockLocal = MockExecutor()
         let digest = try await storeAction(platform: platform("requires-gpu", "true"), in: cas)

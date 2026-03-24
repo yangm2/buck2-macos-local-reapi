@@ -9,8 +9,8 @@ struct CASTests {
         return try ContentAddressableStorage(rootURL: url)
     }
 
-    @Test("Round-trip: store then fetch returns original data")
-    func roundTrip() async throws {
+    @Test
+    func `round-trip: store then fetch returns original data`() async throws {
         let cas = try makeTempCAS()
         let data = Data("hello from CAS".utf8)
         let digest = try await cas.store(data)
@@ -18,8 +18,8 @@ struct CASTests {
         #expect(fetched == data)
     }
 
-    @Test("findMissing returns empty for stored blobs")
-    func findMissingHit() async throws {
+    @Test
+    func `findMissing returns empty for stored blobs`() async throws {
         let cas = try makeTempCAS()
         let data = Data("present blob".utf8)
         let digest = try await cas.store(data)
@@ -27,8 +27,8 @@ struct CASTests {
         #expect(missing.isEmpty)
     }
 
-    @Test("findMissing returns digest for absent blobs")
-    func findMissingMiss() async throws {
+    @Test
+    func `findMissing returns digest for absent blobs`() async throws {
         let cas = try makeTempCAS()
         var phantom = Build_Bazel_Remote_Execution_V2_Digest()
         phantom.hash = String(repeating: "a", count: 64)
@@ -38,8 +38,8 @@ struct CASTests {
         #expect(missing[0].hash == phantom.hash)
     }
 
-    @Test("findMissing never reports the empty blob as missing (REAPI invariant)")
-    func findMissingEmptyBlob() async throws {
+    @Test
+    func `findMissing never reports the empty blob as missing (REAPI invariant)`() async throws {
         let cas = try makeTempCAS()
         var emptyDigest = Build_Bazel_Remote_Execution_V2_Digest()
         emptyDigest.hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -48,8 +48,8 @@ struct CASTests {
         #expect(missing.isEmpty, "empty blob must always be reported as present")
     }
 
-    @Test("Fetch returns empty Data for the empty blob without disk access")
-    func fetchEmptyBlob() async throws {
+    @Test
+    func `fetch returns empty Data for the empty blob without disk access`() async throws {
         let cas = try makeTempCAS()
         var emptyDigest = Build_Bazel_Remote_Execution_V2_Digest()
         emptyDigest.hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -58,8 +58,8 @@ struct CASTests {
         #expect(data.isEmpty)
     }
 
-    @Test("Path sharding: blob lands in two-char prefix subdirectory")
-    func pathSharding() async throws {
+    @Test
+    func `path sharding: blob lands in two-char prefix subdirectory`() async throws {
         let cas = try makeTempCAS()
         let data = Data("shard test".utf8)
         let digest = try await cas.store(data)
@@ -69,8 +69,8 @@ struct CASTests {
         #expect(FileManager.default.fileExists(atPath: url.path))
     }
 
-    @Test("Store is idempotent: storing same blob twice is safe")
-    func storeIdempotent() async throws {
+    @Test
+    func `store is idempotent: storing same blob twice is safe`() async throws {
         let cas = try makeTempCAS()
         let data = Data("idempotent".utf8)
         let digest1 = try await cas.store(data)
@@ -80,8 +80,8 @@ struct CASTests {
         #expect(fetched == data)
     }
 
-    @Test("Fetch throws for absent blob")
-    func fetchMissingThrows() async throws {
+    @Test
+    func `fetch throws for absent blob`() async throws {
         let cas = try makeTempCAS()
         var phantom = Build_Bazel_Remote_Execution_V2_Digest()
         phantom.hash = String(repeating: "b", count: 64)

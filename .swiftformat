@@ -1,2 +1,6 @@
 # Disable trailingCommas: conflicts with swiftlint trailing_comma rule
 --disable trailingCommas
+# Keep @Test / @Suite function names as-is; swiftTestingTestCaseNames hoists
+# description strings into backtick identifiers that start with uppercase,
+# which then violates swiftlint's identifier_name rule.
+--disable swiftTestingTestCaseNames

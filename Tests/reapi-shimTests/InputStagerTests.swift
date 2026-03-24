@@ -58,8 +58,8 @@ struct InputStagerTests {
         return try await cas.store(rootData)
     }
 
-    @Test("Staged directory has correct files")
-    func stageDirectory() async throws {
+    @Test
+    func `staged directory has correct files`() async throws {
         let cas = try makeTempCAS()
         let rootDigest = try await buildSimpleTree(cas: cas)
 
@@ -82,8 +82,8 @@ struct InputStagerTests {
         #expect(content == "hello world\n")
     }
 
-    @Test("Executable bit is set on executable files")
-    func executableBit() async throws {
+    @Test
+    func `executable bit is set on executable files`() async throws {
         let cas = try makeTempCAS()
         let rootDigest = try await buildSimpleTree(cas: cas)
 

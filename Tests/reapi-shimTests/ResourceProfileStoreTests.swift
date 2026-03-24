@@ -2,14 +2,14 @@
 import Testing
 
 struct ResourceProfileStoreTests {
-    @Test("profile returns nil for an action that has never been recorded")
-    func profileUnknownReturnsNil() async {
+    @Test
+    func `profile returns nil for an action that has never been recorded`() async {
         let store = ResourceProfileStore()
         #expect(await store.profile(for: "unknown") == nil)
     }
 
-    @Test("profile returns 25% headroom over observed peak")
-    func profileHeadroom() async {
+    @Test
+    func `profile returns 25% headroom over observed peak`() async {
         let store = ResourceProfileStore()
         await store.record(hash: "abc", memoryMB: 800, wallTimeSec: 1.0)
         let profile = await store.profile(for: "abc")
@@ -17,8 +17,8 @@ struct ResourceProfileStoreTests {
         #expect(profile?.memoryMB == 1000)
     }
 
-    @Test("profile clamps to 512 MB minimum when headroom is below floor")
-    func profileMinimumFloor() async {
+    @Test
+    func `profile clamps to 512 MB minimum when headroom is below floor`() async {
         let store = ResourceProfileStore()
         await store.record(hash: "abc", memoryMB: 100, wallTimeSec: 0.5)
         let profile = await store.profile(for: "abc")
@@ -26,8 +26,8 @@ struct ResourceProfileStoreTests {
         #expect(profile?.memoryMB == 512)
     }
 
-    @Test("record overwrites the previous observation for the same hash")
-    func recordOverwritesPreviousEntry() async {
+    @Test
+    func `record overwrites the previous observation for the same hash`() async {
         let store = ResourceProfileStore()
         await store.record(hash: "abc", memoryMB: 100, wallTimeSec: 1.0)
         await store.record(hash: "abc", memoryMB: 2000, wallTimeSec: 2.0)
@@ -36,8 +36,8 @@ struct ResourceProfileStoreTests {
         #expect(profile?.memoryMB == 2500)
     }
 
-    @Test("different hashes are stored independently")
-    func independentHashes() async {
+    @Test
+    func `different hashes are stored independently`() async {
         let store = ResourceProfileStore()
         await store.record(hash: "aaa", memoryMB: 800, wallTimeSec: 1.0)
         await store.record(hash: "bbb", memoryMB: 2000, wallTimeSec: 2.0)

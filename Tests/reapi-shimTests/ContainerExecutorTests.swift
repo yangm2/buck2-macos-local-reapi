@@ -153,8 +153,8 @@ struct ContainerExecutorTests {
         )
     }
 
-    @Test("Cache hit returns cached result without invoking backend")
-    func cacheHit() async throws {
+    @Test
+    func `cache hit returns cached result without invoking backend`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         let backend = MockContainerBackend()
@@ -171,8 +171,8 @@ struct ContainerExecutorTests {
         #expect(await backend.resolveImageCallCount == 0)
     }
 
-    @Test("Successful action (exit 0) stores result in cache")
-    func successfulActionCachesResult() async throws {
+    @Test
+    func `successful action (exit 0) stores result in cache`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         let backend = MockContainerBackend(stdout: Data("hello\n".utf8))
@@ -187,8 +187,8 @@ struct ContainerExecutorTests {
         #expect(await backend.createCallCount == 1)
     }
 
-    @Test("Failed action (exit 1) is not cached and stderr has [HERMETIC] tag")
-    func failedActionNotCachedAndClassified() async throws {
+    @Test
+    func `failed action (exit 1) is not cached and stderr has [HERMETIC] tag`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         let backend = MockContainerBackend(exitCode: 1)
@@ -203,8 +203,8 @@ struct ContainerExecutorTests {
         #expect(stderrText.contains("[HERMETIC]"))
     }
 
-    @Test("OOM action (exit 137) stderr has [FLAKY] tag")
-    func oomActionHasFlakyTag() async throws {
+    @Test
+    func `oom action (exit 137) stderr has [FLAKY] tag`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         let backend = MockContainerBackend(exitCode: 137)
@@ -218,8 +218,8 @@ struct ContainerExecutorTests {
         #expect(stderrText.contains("[FLAKY]"))
     }
 
-    @Test("skipCacheLookup=true bypasses a populated cache")
-    func skipCacheLookupBypassesCache() async throws {
+    @Test
+    func `skipCacheLookup=true bypasses a populated cache`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         let backend = MockContainerBackend()
@@ -236,8 +236,8 @@ struct ContainerExecutorTests {
         #expect(await backend.createCallCount == 1)
     }
 
-    @Test("resolveImage is called once per container execution")
-    func resolveImageCalledPerExecution() async throws {
+    @Test
+    func `resolveImage is called once per container execution`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         let backend = MockContainerBackend()
@@ -252,8 +252,8 @@ struct ContainerExecutorTests {
         #expect(await backend.createCallCount == 2)
     }
 
-    @Test("Stdout written by the process is stored in the result")
-    func stdoutStoredInResult() async throws {
+    @Test
+    func `stdout written by the process is stored in the result`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         let expected = Data("hello world\n".utf8)
@@ -267,8 +267,8 @@ struct ContainerExecutorTests {
         #expect(stored == expected)
     }
 
-    @Test("Container is deleted after a successful execution")
-    func containerDeletedAfterSuccess() async throws {
+    @Test
+    func `container is deleted after a successful execution`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         let backend = MockContainerBackend()
@@ -283,8 +283,8 @@ struct ContainerExecutorTests {
         #expect(await backend.deleteCallCount == 1)
     }
 
-    @Test("Container is deleted even when the action fails")
-    func containerDeletedAfterFailure() async throws {
+    @Test
+    func `container is deleted even when the action fails`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         let backend = MockContainerBackend(exitCode: 1)
@@ -297,8 +297,8 @@ struct ContainerExecutorTests {
         #expect(await backend.deleteCallCount == 1)
     }
 
-    @Test("Output files declared in the command are collected from the staging directory")
-    func outputFilesCollected() async throws {
+    @Test
+    func `output files declared in the command are collected from the staging directory`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
 

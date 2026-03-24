@@ -5,6 +5,7 @@
 # Swift compiler index-build artefacts spilled to package root
 *.swiftmodule
 *.swiftdeps
+*.swiftdeps~
 *.dia
 *.d
 

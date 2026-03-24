@@ -160,8 +160,8 @@ private actor MockRemoteREAPIBackend: RemoteREAPIBackend {
 // MARK: - Digest collection tests
 
 struct RemoteExecutorDigestTests {
-    @Test("collectDigests includes action, command, root dir, and file blobs")
-    func collectDigestsIncludesAllBlobs() async throws {
+    @Test
+    func `collectDigests includes action, command, root dir, and file blobs`() async throws {
         let cas = try makeTempCAS()
         let tree = try await buildActionTree(in: cas)
 
@@ -173,8 +173,8 @@ struct RemoteExecutorDigestTests {
         #expect(digests.contains(tree.file1))
     }
 
-    @Test("collectDigests recurses into subdirectories")
-    func collectDigestsRecursesSubdirectories() async throws {
+    @Test
+    func `collectDigests recurses into subdirectories`() async throws {
         let cas = try makeTempCAS()
         let tree = try await buildActionTree(in: cas)
 
@@ -184,8 +184,8 @@ struct RemoteExecutorDigestTests {
         #expect(digests.contains(tree.file2))
     }
 
-    @Test("collectDigests result has no duplicates for each blob category")
-    func collectDigestsNoDuplicateActionDigest() async throws {
+    @Test
+    func `collectDigests result has no duplicates for each blob category`() async throws {
         let cas = try makeTempCAS()
         let tree = try await buildActionTree(in: cas)
 
@@ -199,8 +199,8 @@ struct RemoteExecutorDigestTests {
 // MARK: - extractResult tests
 
 struct RemoteExecutorExtractResultTests {
-    @Test("success operation returns ActionResult with correct exit code")
-    func successReturnsActionResult() async throws {
+    @Test
+    func `success operation returns ActionResult with correct exit code`() async throws {
         let oper = try successOperation(exitCode: 42)
         let response = streamingResponse(oper)
 
@@ -209,8 +209,8 @@ struct RemoteExecutorExtractResultTests {
         #expect(result.exitCode == 42)
     }
 
-    @Test("error operation throws executeFailed with code and message")
-    func errorThrowsExecuteFailed() async throws {
+    @Test
+    func `error operation throws executeFailed with code and message`() async throws {
         let oper = errorOperation(code: 9, message: "infra failure")
         let response = streamingResponse(oper)
 
@@ -223,8 +223,8 @@ struct RemoteExecutorExtractResultTests {
         }
     }
 
-    @Test("stream ending without done=true throws streamEndedWithoutResult")
-    func noDoneOperationThrows() async throws {
+    @Test
+    func `stream ending without done=true throws streamEndedWithoutResult`() async throws {
         let response = streamingResponse(pendingOperation())
 
         do {
@@ -235,8 +235,8 @@ struct RemoteExecutorExtractResultTests {
         }
     }
 
-    @Test("empty stream throws streamEndedWithoutResult")
-    func emptyStreamThrows() async throws {
+    @Test
+    func `empty stream throws streamEndedWithoutResult`() async throws {
         let response = streamingResponse()
 
         do {
@@ -247,8 +247,8 @@ struct RemoteExecutorExtractResultTests {
         }
     }
 
-    @Test("not-done operations are skipped; first done=true operation wins")
-    func skipsNotDoneOperations() async throws {
+    @Test
+    func `not-done operations are skipped; first done=true operation wins`() async throws {
         let pending = pendingOperation()
         let done = try successOperation(exitCode: 7)
         let response = streamingResponse(pending, done)
@@ -269,8 +269,8 @@ struct RemoteExecutorIntegrationTests {
         RemoteExecutor(localCAS: cas, remote: backend)
     }
 
-    @Test("no blobs uploaded when remote already has all blobs")
-    func allBlobsPresentSkipsUpload() async throws {
+    @Test
+    func `no blobs uploaded when remote already has all blobs`() async throws {
         let cas = try makeTempCAS()
         let tree = try await buildActionTree(in: cas)
         let backend = MockRemoteREAPIBackend() // reports nothing missing
@@ -282,8 +282,8 @@ struct RemoteExecutorIntegrationTests {
         #expect(await backend.uploadCallCount == 0)
     }
 
-    @Test("missing blobs are fetched from local CAS and uploaded")
-    func missingBlobsAreUploaded() async throws {
+    @Test
+    func `missing blobs are fetched from local CAS and uploaded`() async throws {
         let cas = try makeTempCAS()
         let tree = try await buildActionTree(in: cas)
         let backend = MockRemoteREAPIBackend(missingDigests: [tree.file1, tree.file2])
@@ -297,8 +297,8 @@ struct RemoteExecutorIntegrationTests {
         #expect(uploaded.contains(tree.file2))
     }
 
-    @Test("execute is called with skipCacheLookup forwarded correctly")
-    func skipCacheLookupForwarded() async throws {
+    @Test
+    func `execute is called with skipCacheLookup forwarded correctly`() async throws {
         let cas = try makeTempCAS()
         let tree = try await buildActionTree(in: cas)
         let backend = MockRemoteREAPIBackend()
@@ -310,8 +310,8 @@ struct RemoteExecutorIntegrationTests {
         #expect(await backend.executeCallCount == 1)
     }
 
-    @Test("ActionResult from remote backend is returned to caller")
-    func remoteResultIsReturned() async throws {
+    @Test
+    func `actionResult from remote backend is returned to caller`() async throws {
         let cas = try makeTempCAS()
         let tree = try await buildActionTree(in: cas)
         let backend = MockRemoteREAPIBackend(exitCode: 5)

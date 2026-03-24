@@ -63,8 +63,8 @@ private func withREAPIServer<T: Sendable>(
 // MARK: - Capabilities service
 
 struct CapabilitiesServiceIntegrationTests {
-    @Test("GetCapabilities: SHA-256 is in supported digest functions")
-    func sha256DigestFunction() async throws {
+    @Test
+    func `getCapabilities: SHA-256 is in supported digest functions`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
@@ -74,8 +74,8 @@ struct CapabilitiesServiceIntegrationTests {
         }
     }
 
-    @Test("GetCapabilities: execution is enabled with SHA-256")
-    func executionEnabled() async throws {
+    @Test
+    func `getCapabilities: execution is enabled with SHA-256`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
@@ -86,8 +86,8 @@ struct CapabilitiesServiceIntegrationTests {
         }
     }
 
-    @Test("GetCapabilities: ActionCache updates are enabled")
-    func actionCacheUpdateEnabled() async throws {
+    @Test
+    func `getCapabilities: ActionCache updates are enabled`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
@@ -97,8 +97,8 @@ struct CapabilitiesServiceIntegrationTests {
         }
     }
 
-    @Test("GetCapabilities: API version is 2.x")
-    func apiVersion() async throws {
+    @Test
+    func `getCapabilities: API version is 2.x`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
@@ -113,8 +113,8 @@ struct CapabilitiesServiceIntegrationTests {
 // MARK: - CAS service
 
 struct CASServiceIntegrationTests {
-    @Test("FindMissingBlobs: unknown digest is reported as missing")
-    func unknownDigestIsMissing() async throws {
+    @Test
+    func `findMissingBlobs: unknown digest is reported as missing`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
@@ -128,8 +128,8 @@ struct CASServiceIntegrationTests {
         }
     }
 
-    @Test("FindMissingBlobs: empty blob is never reported as missing (REAPI invariant)")
-    func emptyBlobAlwaysPresent() async throws {
+    @Test
+    func `findMissingBlobs: empty blob is never reported as missing (REAPI invariant)`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
@@ -146,8 +146,8 @@ struct CASServiceIntegrationTests {
         }
     }
 
-    @Test("BatchUpdateBlobs + FindMissingBlobs: uploaded blob is no longer missing")
-    func uploadThenFindNotMissing() async throws {
+    @Test
+    func `batchUpdateBlobs + FindMissingBlobs: uploaded blob is no longer missing`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         let payload = Data("integration test blob".utf8)
@@ -176,8 +176,8 @@ struct CASServiceIntegrationTests {
         }
     }
 
-    @Test("BatchUpdateBlobs + BatchReadBlobs: round-trip preserves content")
-    func roundTrip() async throws {
+    @Test
+    func `batchUpdateBlobs + BatchReadBlobs: round-trip preserves content`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         let payload = Data("round-trip payload \(UUID().uuidString)".utf8)
@@ -204,8 +204,8 @@ struct CASServiceIntegrationTests {
         }
     }
 
-    @Test("BatchReadBlobs: absent blob returns NOT_FOUND status code")
-    func readAbsentBlobReturnsNotFound() async throws {
+    @Test
+    func `batchReadBlobs: absent blob returns NOT_FOUND status code`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
@@ -225,8 +225,8 @@ struct CASServiceIntegrationTests {
 // MARK: - ActionCache service
 
 struct ActionCacheServiceIntegrationTests {
-    @Test("GetActionResult: cache miss returns NOT_FOUND gRPC status")
-    func cacheMissIsNotFound() async throws {
+    @Test
+    func `getActionResult: cache miss returns NOT_FOUND gRPC status`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
@@ -242,8 +242,8 @@ struct ActionCacheServiceIntegrationTests {
         }
     }
 
-    @Test("UpdateActionResult + GetActionResult: round-trip")
-    func updateThenGet() async throws {
+    @Test
+    func `updateActionResult + GetActionResult: round-trip`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         let actionDigest = makeTestDigest("abc123")
@@ -264,8 +264,8 @@ struct ActionCacheServiceIntegrationTests {
         }
     }
 
-    @Test("UpdateActionResult: exit code is preserved")
-    func exitCodePreserved() async throws {
+    @Test
+    func `updateActionResult: exit code is preserved`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         let actionDigest = makeTestDigest("exit42")
@@ -286,8 +286,8 @@ struct ActionCacheServiceIntegrationTests {
         }
     }
 
-    @Test("ActionCache: different digests are stored independently")
-    func digestIndependence() async throws {
+    @Test
+    func `actionCache: different digests are stored independently`() async throws {
         let cas = try makeTempCAS()
         let cache = try makeTempCache()
         let digest1 = makeTestDigest("action111")

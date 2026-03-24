@@ -16,8 +16,8 @@ struct OutputCollectorTests {
         return try ContentAddressableStorage(rootURL: url)
     }
 
-    @Test("Non-existent output path is silently skipped")
-    func collectMissingPath() async throws {
+    @Test
+    func `non-existent output path is silently skipped`() async throws {
         let collector = try OutputCollector(cas: makeCAS())
         let outputs = try await collector.collect(
             outputPaths: ["nonexistent.txt"],
@@ -26,8 +26,8 @@ struct OutputCollectorTests {
         #expect(outputs.isEmpty)
     }
 
-    @Test("File is stored in CAS and returned as OutputFile")
-    func collectFile() async throws {
+    @Test
+    func `file is stored in CAS and returned as OutputFile`() async throws {
         let cas = try makeCAS()
         let workDir = try makeTempDir()
         let content = Data("hello output".utf8)
@@ -42,8 +42,8 @@ struct OutputCollectorTests {
         #expect(fetched == content)
     }
 
-    @Test("Executable bit is reflected in isExecutable")
-    func collectExecutableBit() async throws {
+    @Test
+    func `executable bit is reflected in isExecutable`() async throws {
         let workDir = try makeTempDir()
         let fileURL = workDir.appendingPathComponent("run.sh")
         try Data("#!/bin/sh".utf8).write(to: fileURL)
@@ -55,8 +55,8 @@ struct OutputCollectorTests {
         #expect(outputs[0].isExecutable)
     }
 
-    @Test("Non-executable file has isExecutable false")
-    func collectNonExecutable() async throws {
+    @Test
+    func `non-executable file has isExecutable false`() async throws {
         let workDir = try makeTempDir()
         let fileURL = workDir.appendingPathComponent("data.bin")
         try Data("data".utf8).write(to: fileURL)
@@ -68,8 +68,8 @@ struct OutputCollectorTests {
         #expect(!outputs[0].isExecutable)
     }
 
-    @Test("Directory output is collected recursively")
-    func collectDirectory() async throws {
+    @Test
+    func `directory output is collected recursively`() async throws {
         let workDir = try makeTempDir()
         let subdir = workDir.appendingPathComponent("outdir")
         try FileManager.default.createDirectory(at: subdir, withIntermediateDirectories: true)
@@ -85,8 +85,8 @@ struct OutputCollectorTests {
         #expect(paths.contains("outdir/b.txt"))
     }
 
-    @Test("Multiple output paths are all collected")
-    func collectMultiplePaths() async throws {
+    @Test
+    func `multiple output paths are all collected`() async throws {
         let cas = try makeCAS()
         let workDir = try makeTempDir()
         try Data("a".utf8).write(to: workDir.appendingPathComponent("a.txt"))

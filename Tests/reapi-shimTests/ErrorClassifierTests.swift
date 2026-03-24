@@ -4,8 +4,8 @@ import Testing
 struct ErrorClassifierTests {
     // MARK: - classify
 
-    @Test("containerError produces INFRA category")
-    func classifyInfra() {
+    @Test
+    func `containerError produces INFRA category`() {
         let result = ErrorClassifier.classify(
             exitCode: 1,
             signal: nil,
@@ -19,8 +19,8 @@ struct ErrorClassifierTests {
         #expect(result.originalStderr == "some output")
     }
 
-    @Test("SIGKILL produces FLAKY category with memory limit in header")
-    func classifyFlaky() {
+    @Test
+    func `SIGKILL produces FLAKY category with memory limit in header`() {
         let result = ErrorClassifier.classify(
             exitCode: -1,
             signal: 9,
@@ -33,8 +33,8 @@ struct ErrorClassifierTests {
         #expect(result.header.contains("1024"))
     }
 
-    @Test("Non-zero exit produces HERMETIC category with exit code in header")
-    func classifyHermetic() {
+    @Test
+    func `non-zero exit produces HERMETIC category with exit code in header`() {
         let result = ErrorClassifier.classify(
             exitCode: 2,
             signal: nil,
@@ -47,8 +47,8 @@ struct ErrorClassifierTests {
         #expect(result.header.contains("2"))
     }
 
-    @Test("containerError takes precedence over SIGKILL")
-    func classifyInfraTakesPrecedenceOverSignal() {
+    @Test
+    func `containerError takes precedence over SIGKILL`() {
         let result = ErrorClassifier.classify(
             exitCode: -1,
             signal: 9,
@@ -59,8 +59,8 @@ struct ErrorClassifierTests {
         #expect(result.category == .infra)
     }
 
-    @Test("Non-9 signal falls through to HERMETIC")
-    func classifyNonKillSignal() {
+    @Test
+    func `non-9 signal falls through to HERMETIC`() {
         let result = ErrorClassifier.classify(
             exitCode: 1,
             signal: 11, // SIGSEGV
@@ -73,30 +73,30 @@ struct ErrorClassifierTests {
 
     // MARK: - rewritePaths
 
-    @Test("rewritePaths strips /workspace/ prefix")
-    func rewritePathsStripsPrefix() {
+    @Test
+    func `rewritePaths strips /workspace/ prefix`() {
         let input = "/workspace/src/foo.cpp:10: error: undeclared identifier"
         let output = ErrorClassifier.rewritePaths(input)
         #expect(output == "src/foo.cpp:10: error: undeclared identifier")
     }
 
-    @Test("rewritePaths replaces all occurrences")
-    func rewritePathsMultiple() {
+    @Test
+    func `rewritePaths replaces all occurrences`() {
         let input = "/workspace/a.cpp and /workspace/b.cpp"
         let output = ErrorClassifier.rewritePaths(input)
         #expect(output == "a.cpp and b.cpp")
     }
 
-    @Test("rewritePaths is a no-op when no workspace prefix present")
-    func rewritePathsNoOp() {
+    @Test
+    func `rewritePaths is a no-op when no workspace prefix present`() {
         let input = "no paths here"
         #expect(ErrorClassifier.rewritePaths(input) == input)
     }
 
     // MARK: - format
 
-    @Test("format returns header only when stderr is empty")
-    func formatEmptyStderr() {
+    @Test
+    func `format returns header only when stderr is empty`() {
         let classified = ErrorClassifier.ClassifiedError(
             category: .hermetic,
             header: "the header",
@@ -105,8 +105,8 @@ struct ErrorClassifierTests {
         #expect(ErrorClassifier.format(classified) == "the header")
     }
 
-    @Test("format appends separator and stderr when non-empty")
-    func formatWithStderr() {
+    @Test
+    func `format appends separator and stderr when non-empty`() {
         let classified = ErrorClassifier.ClassifiedError(
             category: .hermetic,
             header: "the header",
