@@ -12,6 +12,12 @@ private func makeTempCAS() throws -> ContentAddressableStorage {
     return try ContentAddressableStorage(rootURL: url)
 }
 
+private func makeTempCache() throws -> ActionCache {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ac-integration-test-\(UUID().uuidString)")
+    return try ActionCache(rootURL: url)
+}
+
 /// Builds a digest with a padded hash for use in tests.
 private func makeTestDigest(_ hash: String, size: Int64 = 42) -> Build_Bazel_Remote_Execution_V2_Digest {
     var digest = Build_Bazel_Remote_Execution_V2_Digest()
@@ -60,7 +66,7 @@ struct CapabilitiesServiceIntegrationTests {
     @Test("GetCapabilities: SHA-256 is in supported digest functions")
     func sha256DigestFunction() async throws {
         let cas = try makeTempCAS()
-        let cache = ActionCache()
+        let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
             let capClient = Build_Bazel_Remote_Execution_V2_Capabilities.Client(wrapping: grpcClient)
             let caps = try await capClient.getCapabilities(request: .init(message: .init()))
@@ -71,7 +77,7 @@ struct CapabilitiesServiceIntegrationTests {
     @Test("GetCapabilities: execution is enabled with SHA-256")
     func executionEnabled() async throws {
         let cas = try makeTempCAS()
-        let cache = ActionCache()
+        let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
             let capClient = Build_Bazel_Remote_Execution_V2_Capabilities.Client(wrapping: grpcClient)
             let caps = try await capClient.getCapabilities(request: .init(message: .init()))
@@ -83,7 +89,7 @@ struct CapabilitiesServiceIntegrationTests {
     @Test("GetCapabilities: ActionCache updates are enabled")
     func actionCacheUpdateEnabled() async throws {
         let cas = try makeTempCAS()
-        let cache = ActionCache()
+        let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
             let capClient = Build_Bazel_Remote_Execution_V2_Capabilities.Client(wrapping: grpcClient)
             let caps = try await capClient.getCapabilities(request: .init(message: .init()))
@@ -94,7 +100,7 @@ struct CapabilitiesServiceIntegrationTests {
     @Test("GetCapabilities: API version is 2.x")
     func apiVersion() async throws {
         let cas = try makeTempCAS()
-        let cache = ActionCache()
+        let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
             let capClient = Build_Bazel_Remote_Execution_V2_Capabilities.Client(wrapping: grpcClient)
             let caps = try await capClient.getCapabilities(request: .init(message: .init()))
@@ -110,7 +116,7 @@ struct CASServiceIntegrationTests {
     @Test("FindMissingBlobs: unknown digest is reported as missing")
     func unknownDigestIsMissing() async throws {
         let cas = try makeTempCAS()
-        let cache = ActionCache()
+        let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
             let casClient = Build_Bazel_Remote_Execution_V2_ContentAddressableStorage.Client(
                 wrapping: grpcClient
@@ -125,7 +131,7 @@ struct CASServiceIntegrationTests {
     @Test("FindMissingBlobs: empty blob is never reported as missing (REAPI invariant)")
     func emptyBlobAlwaysPresent() async throws {
         let cas = try makeTempCAS()
-        let cache = ActionCache()
+        let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
             let casClient = Build_Bazel_Remote_Execution_V2_ContentAddressableStorage.Client(
                 wrapping: grpcClient
@@ -143,7 +149,7 @@ struct CASServiceIntegrationTests {
     @Test("BatchUpdateBlobs + FindMissingBlobs: uploaded blob is no longer missing")
     func uploadThenFindNotMissing() async throws {
         let cas = try makeTempCAS()
-        let cache = ActionCache()
+        let cache = try makeTempCache()
         let payload = Data("integration test blob".utf8)
         let digest = ContentAddressableStorage.digest(for: payload)
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
@@ -173,7 +179,7 @@ struct CASServiceIntegrationTests {
     @Test("BatchUpdateBlobs + BatchReadBlobs: round-trip preserves content")
     func roundTrip() async throws {
         let cas = try makeTempCAS()
-        let cache = ActionCache()
+        let cache = try makeTempCache()
         let payload = Data("round-trip payload \(UUID().uuidString)".utf8)
         let digest = ContentAddressableStorage.digest(for: payload)
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
@@ -201,7 +207,7 @@ struct CASServiceIntegrationTests {
     @Test("BatchReadBlobs: absent blob returns NOT_FOUND status code")
     func readAbsentBlobReturnsNotFound() async throws {
         let cas = try makeTempCAS()
-        let cache = ActionCache()
+        let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
             let casClient = Build_Bazel_Remote_Execution_V2_ContentAddressableStorage.Client(
                 wrapping: grpcClient
@@ -222,7 +228,7 @@ struct ActionCacheServiceIntegrationTests {
     @Test("GetActionResult: cache miss returns NOT_FOUND gRPC status")
     func cacheMissIsNotFound() async throws {
         let cas = try makeTempCAS()
-        let cache = ActionCache()
+        let cache = try makeTempCache()
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
             let acClient = Build_Bazel_Remote_Execution_V2_ActionCache.Client(wrapping: grpcClient)
             var request = Build_Bazel_Remote_Execution_V2_GetActionResultRequest()
@@ -239,7 +245,7 @@ struct ActionCacheServiceIntegrationTests {
     @Test("UpdateActionResult + GetActionResult: round-trip")
     func updateThenGet() async throws {
         let cas = try makeTempCAS()
-        let cache = ActionCache()
+        let cache = try makeTempCache()
         let actionDigest = makeTestDigest("abc123")
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
             let acClient = Build_Bazel_Remote_Execution_V2_ActionCache.Client(wrapping: grpcClient)
@@ -261,7 +267,7 @@ struct ActionCacheServiceIntegrationTests {
     @Test("UpdateActionResult: exit code is preserved")
     func exitCodePreserved() async throws {
         let cas = try makeTempCAS()
-        let cache = ActionCache()
+        let cache = try makeTempCache()
         let actionDigest = makeTestDigest("exit42")
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in
             let acClient = Build_Bazel_Remote_Execution_V2_ActionCache.Client(wrapping: grpcClient)
@@ -283,7 +289,7 @@ struct ActionCacheServiceIntegrationTests {
     @Test("ActionCache: different digests are stored independently")
     func digestIndependence() async throws {
         let cas = try makeTempCAS()
-        let cache = ActionCache()
+        let cache = try makeTempCache()
         let digest1 = makeTestDigest("action111")
         let digest2 = makeTestDigest("action222")
         try await withREAPIServer(cas: cas, cache: cache) { grpcClient in

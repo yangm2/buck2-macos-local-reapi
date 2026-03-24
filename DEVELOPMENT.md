@@ -1138,27 +1138,28 @@ flowchart TD
 
 **Prerequisites (verilator-example changes)**
 
-- Fix FST output path: `sim_main.cpp` currently hardcodes `runsim.fst` relative to the working directory. Make it a declared Buck2 output (passed as an argument or env var) so waveforms are accessible via `buck2 build` output and the build is fully hermetic.
-- Add a formal `buck2 test` target: replace the `command_alias` smoke test with a proper test rule that runs the simulation binary and asserts on exit code / stdout. Enables `buck2 test //src:...` as the Phase 1 validation command in place of manual inspection.
+- ~~Fix FST output path: `sim_main.cpp` currently hardcodes `runsim.fst` relative to the working directory. Make it a declared Buck2 output (passed as an argument or env var) so waveforms are accessible via `buck2 build` output and the build is fully hermetic.~~ ✓ Done — reads `FST_OUTPUT` env var, falls back to `runsim.fst` for interactive use.
+- ~~Add a formal `buck2 test` target: replace the `command_alias` smoke test with a proper test rule that runs the simulation binary and asserts on exit code / stdout. Enables `buck2 test //src:...` as the Phase 1 validation command in place of manual inspection.~~ ✓ Done — `//src:sim_test` genrule produces `sim_test.ok` sentinel on success.
 
 **Shim**
 
-- Add persistent ActionCache (filesystem-backed, same layout as CAS) so cache hits survive daemon restarts. The in-memory cache is lost on every restart, undermining the cache hit rate story. SQLite is unnecessary — ActionResult entries are small serialised protobufs keyed by hash, making a flat-file layout (identical to the CAS) the idiomatic choice with no added dependencies.
-- Replace action profiling by argv pattern-matching (which never fires because Buck2 wraps all genrules in `bash -e`) with post-hoc resource tracking: record actual peak memory and wall time per completed action using OS-level measurement, accumulate in a local store, and use as input to VM limit heuristics.
-- Drop the VirtioFS-vs-file-copy exploration: staging now targets case-sensitive ephemeral APFS volumes (§4.7), which changes the framing from a performance question to a correctness question. VirtioFS semantics are the *problem* (host case-folding propagates to the guest), not a solution.
-- Add `--keep-failed-staging` CLI flag: retain the staging volume on non-zero exit for post-mortem inspection (`diskutil list` surfaces it by name; normal teardown is unchanged).
-- Add `os_log` structured logging and basic diagnostics, replacing the current `print()` calls.
+- ~~Add persistent ActionCache (filesystem-backed, same layout as CAS) so cache hits survive daemon restarts. The in-memory cache is lost on every restart, undermining the cache hit rate story. SQLite is unnecessary — ActionResult entries are small serialised protobufs keyed by hash, making a flat-file layout (identical to the CAS) the idiomatic choice with no added dependencies.~~ ✓ Done — `--action-cache-dir` flag (default `~/.local/share/reapi-shim/action-cache`); same `{prefix2}/{hash}` layout as CAS; atomic write-then-rename.
+- ~~Replace action profiling by argv pattern-matching (which never fires because Buck2 wraps all genrules in `bash -e`) with post-hoc resource tracking: record actual peak memory and wall time per completed action using OS-level measurement, accumulate in a local store, and use as input to VM limit heuristics.~~ ✓ Done — `ResourceProfileStore` actor accumulates `getrusage(RUSAGE_CHILDREN)` RSS and wall time; 25 % headroom applied on subsequent runs; conservative 3 GiB default on first run.
+- ~~Drop the VirtioFS-vs-file-copy exploration: staging now targets case-sensitive ephemeral APFS volumes (§4.7), which changes the framing from a performance question to a correctness question. VirtioFS semantics are the *problem* (host case-folding propagates to the guest), not a solution.~~ ✓ Done — bind-mount (`-v stagingDir:/workspace`) is the staging mechanism; VirtioFS is not pursued.
+- ~~Add `--keep-failed-staging` CLI flag: retain the staging volume on non-zero exit for post-mortem inspection (`diskutil list` surfaces it by name; normal teardown is unchanged).~~ ✓ Done.
+- ~~Add `os_log` structured logging and basic diagnostics, replacing the current `print()` calls.~~ ✓ Done — `os.Logger` with subsystem `dev.reapi-shim` and per-file categories; `print()` calls removed.
 
 **Dependencies and testing**
 
 - ~~Migrate `grpc-swift` from `github.com/grpc/grpc-swift` (maintenance-only after 2.2.3) to the canonical v2 repo `github.com/grpc/grpc-swift-2` (active development, currently 2.3.0). Companion packages `grpc-swift-protobuf` and `grpc-swift-nio-transport` stay at their original URLs.~~ ✓ Done
 - ~~Bump `grpc-swift-protobuf` (→ 2.2.1) and `grpc-swift-nio-transport` (→ 2.5.0) to resolve the `ProtobufSerializer`/`ProtobufDeserializer` deprecation warnings in generated stubs.~~ ✓ Done
 - ~~Add gRPC service integration tests covering `CASService`, `ActionCacheService`, and `CapabilitiesService` using `GRPCInProcessTransport` (no network socket, no containers). Enable client stub generation (`"clients": true` in proto generator config).~~ ✓ Done — 13 tests in `ServiceIntegrationTests.swift`
+- ~~Add Layer 2 E2E tests (local dev only — `mise run test:e2e`): cold build verifies container execution; warm build verifies ActionCache hit; persistence step verifies cache survives shim restart; negative tests verify `BUILD FAILED` propagation and `--keep-failed-staging` staging retention.~~ ✓ Done — `scripts/e2e-test.sh`, fixture at `Tests/E2E/hello-genrule/`.
 
 **Validation**
 
 - Test with a more complex Verilator design (parameterised module hierarchy) to find the practical memory ceiling on 8 GB hardware and validate the post-hoc resource tracking.
-- Confirm ActionCache persistence: `buck2 build`, restart shim, `buck2 build` again — second build should show 100% remote cache hits with zero container invocations.
+- ~~Confirm ActionCache persistence: `buck2 build`, restart shim, `buck2 build` again — second build should show 100% remote cache hits with zero container invocations.~~ ✓ Done — validated by step 6b of `mise run test:e2e`.
 
 ### Phase 2: Scale Up (Mac mini M2 Pro / M4, 32+ GB)
 

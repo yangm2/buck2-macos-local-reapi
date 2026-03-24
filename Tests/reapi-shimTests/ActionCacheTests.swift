@@ -3,6 +3,12 @@ import Foundation
 import Testing
 
 struct ActionCacheTests {
+    func makeTempCache() throws -> ActionCache {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ac-unit-test-\(UUID().uuidString)")
+        return try ActionCache(rootURL: url)
+    }
+
     func makeDigest(_ hash: String) -> Build_Bazel_Remote_Execution_V2_Digest {
         var digest = Build_Bazel_Remote_Execution_V2_Digest()
         digest.hash = String(hash.prefix(64).padding(toLength: 64, withPad: "0", startingAt: 0))
@@ -17,15 +23,15 @@ struct ActionCacheTests {
     }
 
     @Test("get on empty cache returns nil")
-    func getEmpty() async {
-        let cache = ActionCache()
+    func getEmpty() async throws {
+        let cache = try makeTempCache()
         let result = await cache.get(actionDigest: makeDigest("aaa"))
         #expect(result == nil)
     }
 
     @Test("put then get returns stored result")
-    func putGet() async {
-        let cache = ActionCache()
+    func putGet() async throws {
+        let cache = try makeTempCache()
         let digest = makeDigest("abc")
         let expected = makeResult(exitCode: 0)
         await cache.put(actionDigest: digest, result: expected)
@@ -34,8 +40,8 @@ struct ActionCacheTests {
     }
 
     @Test("Different digests are independent")
-    func digestIndependence() async {
-        let cache = ActionCache()
+    func digestIndependence() async throws {
+        let cache = try makeTempCache()
         let digest1 = makeDigest("111")
         let digest2 = makeDigest("222")
         await cache.put(actionDigest: digest1, result: makeResult(exitCode: 1))
@@ -47,8 +53,8 @@ struct ActionCacheTests {
     }
 
     @Test("Stats track hits and misses")
-    func stats() async {
-        let cache = ActionCache()
+    func stats() async throws {
+        let cache = try makeTempCache()
         let digest = makeDigest("stats")
         // Two misses
         _ = await cache.get(actionDigest: digest)
@@ -59,5 +65,18 @@ struct ActionCacheTests {
         let stats = await cache.stats
         #expect(stats.misses == 2)
         #expect(stats.hits == 1)
+    }
+
+    @Test("Entry survives re-init from same directory")
+    func persistence() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ac-persist-\(UUID().uuidString)")
+        let cache1 = try ActionCache(rootURL: url)
+        let digest = makeDigest("persist")
+        await cache1.put(actionDigest: digest, result: makeResult(exitCode: 7))
+
+        let cache2 = try ActionCache(rootURL: url)
+        let result = await cache2.get(actionDigest: digest)
+        #expect(result?.exitCode == 7)
     }
 }

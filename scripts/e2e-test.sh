@@ -38,6 +38,7 @@ cleanup_on_success() {
     info "Cleaning up..."
     [[ -n "$SHIM_PID" ]] && kill "$SHIM_PID" 2>/dev/null || true
     [[ -n "$CAS_DIR"  ]] && rm -rf "$CAS_DIR"
+    [[ -n "$AC_DIR"   ]] && rm -rf "$AC_DIR"
     [[ -n "$SHIM_LOG" ]] && rm -f  "$SHIM_LOG"
     rm -rf "$FIXTURE_DIR/buck-out"
     ok "All clean."
@@ -122,6 +123,7 @@ ok "Shim built: $SHIM_BIN"
 # ---------------------------------------------------------------------------
 
 CAS_DIR="$(mktemp -d)"
+AC_DIR="$(mktemp -d)"
 SHIM_LOG="$(mktemp)"
 STAGING_BASE="${TMPDIR}reapi-shim-staging"
 
@@ -138,6 +140,7 @@ info "Starting shim (image=$REAPI_IMAGE, port=$REAPI_PORT, cas=$CAS_DIR)..."
     --port "$REAPI_PORT" \
     --image "$REAPI_IMAGE" \
     --cas-dir "$CAS_DIR" \
+    --action-cache-dir "$AC_DIR" \
     --keep-failed-staging \
     >"$SHIM_LOG" 2>&1 &
 SHIM_PID=$!
@@ -185,6 +188,44 @@ if echo "$WARM_OUTPUT" | grep -qE "remote:[[:space:]]*[1-9]"; then
     fail "Warm build executed remotely — ActionCache miss. Check shim logs: $SHIM_LOG"
 fi
 ok "Warm build: no remote execution (ActionCache hit)."
+
+# ---------------------------------------------------------------------------
+# Step 6b — ActionCache persistence across shim restarts
+# ---------------------------------------------------------------------------
+#
+# Stop the current shim and start a fresh instance pointing at the SAME
+# CAS and ActionCache directories.  After buck2 clean, a rebuild must
+# still be served from the on-disk ActionCache (cached: 1, remote: 0).
+
+info "Restarting shim to validate ActionCache persistence..."
+kill "$SHIM_PID" 2>/dev/null || true
+SHIM_PID=""
+for ((i = 0; i < 20; i++)); do
+    nc -z 127.0.0.1 "$REAPI_PORT" 2>/dev/null || break
+    sleep 0.25
+done
+
+SHIM_LOG2="$(mktemp)"
+"$SHIM_BIN" \
+    --port "$REAPI_PORT" \
+    --image "$REAPI_IMAGE" \
+    --cas-dir "$CAS_DIR" \
+    --action-cache-dir "$AC_DIR" \
+    --keep-failed-staging \
+    >"$SHIM_LOG2" 2>&1 &
+SHIM_PID=$!
+wait_for_port "$REAPI_PORT"
+ok "Fresh shim is listening."
+
+buck2 clean 2>/dev/null || true
+PERSIST_OUTPUT="$(buck2 build //:hello 2>&1)"
+echo "$PERSIST_OUTPUT"
+
+if echo "$PERSIST_OUTPUT" | grep -qE "remote:[[:space:]]*[1-9]"; then
+    fail "Persistence build executed remotely — ActionCache not persisted. Logs: $SHIM_LOG2"
+fi
+ok "ActionCache persisted across shim restart."
+rm -f "$SHIM_LOG2"
 
 # ---------------------------------------------------------------------------
 # Step 7 — failing genrule (failure propagation)

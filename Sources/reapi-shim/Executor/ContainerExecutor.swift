@@ -1,11 +1,15 @@
+import Darwin
 import Foundation
+import OSLog
 import SwiftProtobuf
+
+private let logger = Logger(subsystem: "dev.reapi-shim", category: "Executor")
 
 /// Executes REAPI actions inside ephemeral Apple Container VMs.
 ///
 /// Each action follows the lifecycle: stage inputs → launch container → capture outputs →
 /// destroy container. The actor serialises execution so only one VM runs at a time,
-/// which is the correct constraint for an 8 GB MacBook Pro (Phase 0).
+/// which is the correct constraint for an 8 GB MacBook Pro (Phase 1).
 actor ContainerExecutor {
     let cas: ContentAddressableStorage
     let actionCache: ActionCache
@@ -14,6 +18,7 @@ actor ContainerExecutor {
     let keepFailedStaging: Bool
 
     private let stagingBaseURL: URL
+    private let profileStore = ResourceProfileStore()
     private var actionCounter = 0
 
     init(
@@ -44,14 +49,13 @@ actor ContainerExecutor {
         }
 
         // 2. Deserialise Action and Command from CAS
-        log("[Executor] fetching action \(actionDigest.hash):\(actionDigest.sizeBytes)")
+        logger.debug("fetching action \(actionDigest.hash, privacy: .public):\(actionDigest.sizeBytes)")
         let actionData = try await cas.fetch(actionDigest)
         let action = try Build_Bazel_Remote_Execution_V2_Action(serializedBytes: actionData)
 
-        log("[Executor] fetching command \(action.commandDigest.hash):\(action.commandDigest.sizeBytes)")
+        logger.debug("fetching command \(action.commandDigest.hash, privacy: .public)")
         let commandData = try await cas.fetch(action.commandDigest)
         let command = try Build_Bazel_Remote_Execution_V2_Command(serializedBytes: commandData)
-        log("[Executor] command: \(command.arguments.prefix(3).joined(separator: " "))")
 
         // 3. Stage input root into a temporary directory
         actionCounter += 1
@@ -68,12 +72,12 @@ actor ContainerExecutor {
         let stager = InputStager(cas: cas)
         try await stager.stage(rootDigest: action.inputRootDigest, into: stagingDir)
 
-        // 4. Determine container resource profile
-        let argv = command.arguments
-        let profile = ActionProfile.forCommand(argv)
+        // 4. Determine container resource profile from prior observations
+        let profile = await profileStore.profile(for: actionDigest.hash) ?? .conservative
 
         // 5. Run the container
         let runResult = try await runContainer(
+            actionHash: actionDigest.hash,
             command: command,
             stagingDir: stagingDir,
             profile: profile
@@ -82,7 +86,7 @@ actor ContainerExecutor {
         // Preserve staging directory on failure when requested
         if runResult.exitCode != 0, keepFailedStaging {
             cleanupStaging = false
-            log("[Executor] staging preserved for post-mortem: \(stagingDir.path)")
+            logger.info("staging preserved for post-mortem: \(stagingDir.path, privacy: .public)")
         }
 
         // 6. Collect outputs from the staging directory back into CAS
@@ -134,20 +138,17 @@ actor ContainerExecutor {
         let stderr: Data
     }
 
-    /// Launches the toolchain container, waits for it to exit, and returns its
-    /// stdout, stderr, and exit code. Stderr is passed through ``ErrorClassifier``
-    /// to rewrite container-internal paths and produce a human-readable message
-    /// for non-zero exits.
+    /// Launches the toolchain container, waits for it to exit, records its
+    /// resource usage, and returns stdout, stderr, and exit code.
+    /// Stderr is passed through ``ErrorClassifier`` to rewrite container-internal
+    /// paths and produce a human-readable message for non-zero exits.
     private func runContainer(
+        actionHash: String,
         command: Build_Bazel_Remote_Execution_V2_Command,
         stagingDir: URL,
         profile: ActionProfile
     ) async throws -> RunResult {
-        let args = buildContainerArgs(
-            command: command,
-            stagingDir: stagingDir,
-            profile: profile
-        )
+        let args = buildContainerArgs(command: command, stagingDir: stagingDir, profile: profile)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: containerPath)
@@ -158,18 +159,19 @@ actor ContainerExecutor {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let wallStart = Date()
         try process.run()
 
-        // Use async-friendly waiting to avoid blocking the actor
+        // Async-friendly wait to avoid blocking the actor
         let stdout = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
             DispatchQueue.global().async {
                 process.waitUntilExit()
-                continuation.resume(
-                    returning: stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                )
+                continuation.resume(returning: stdoutPipe.fileHandleForReading.readDataToEndOfFile())
             }
         }
         let stderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+
+        await recordPostRunMetrics(hash: actionHash, wallStart: wallStart)
 
         // Rewrite container-internal paths and classify any failure
         var stderrString = String(data: stderr, encoding: .utf8) ?? ""
@@ -187,50 +189,46 @@ actor ContainerExecutor {
             stderrString = ErrorClassifier.format(classified)
         }
 
-        return RunResult(
-            exitCode: exitCode,
-            stdout: stdout,
-            stderr: Data(stderrString.utf8)
-        )
+        return RunResult(exitCode: exitCode, stdout: stdout, stderr: Data(stderrString.utf8))
     }
 
-    /// Builds the argument list for `container run`, including resource limits,
-    /// network isolation, the staging-directory bind-mount, working directory,
-    /// environment variables from the REAPI `Command`, and the action argv.
+    /// Records wall time and peak RSS for the last exited child process.
+    ///
+    /// `ru_maxrss` via `RUSAGE_CHILDREN` is cumulative (maximum across all
+    /// children that have exited since this process started), so the value
+    /// converges toward the peak observed across all runs — acceptable for
+    /// Phase 1 heuristics.
+    private func recordPostRunMetrics(hash: String, wallStart: Date) async {
+        let wallTimeSec = Date().timeIntervalSince(wallStart)
+        var rusageStats = rusage()
+        Darwin.getrusage(RUSAGE_CHILDREN, &rusageStats)
+        // ru_maxrss is in bytes on macOS (unlike Linux where it is kibibytes)
+        let peakMemoryMB = Int(rusageStats.ru_maxrss) / (1024 * 1024)
+        let shortHash = hash.prefix(16)
+        logger.debug("action \(shortHash, privacy: .public) wall=\(wallTimeSec)s rss=\(peakMemoryMB)MiB")
+        await profileStore.record(hash: hash, memoryMB: peakMemoryMB, wallTimeSec: wallTimeSec)
+    }
+
+    /// Builds the argument list for `container run`.
     private func buildContainerArgs(
         command: Build_Bazel_Remote_Execution_V2_Command,
         stagingDir: URL,
         profile: ActionProfile
     ) -> [String] {
         var args = ["run", "--rm"]
-
-        // Resource limits
         args += ["-m", "\(profile.memoryMB)m"]
         args += ["-c", "\(profile.cpus)"]
-
-        // Network isolation: build actions must be hermetic
         args += ["--network", "none"]
-
-        // Bind-mount staging directory as /workspace (read-write so outputs are visible on host)
         args += ["-v", "\(stagingDir.path):/workspace"]
-
-        // Working directory inside the container
         let workDir = command.workingDirectory.isEmpty
             ? "/workspace"
             : "/workspace/\(command.workingDirectory)"
         args += ["-w", workDir]
-
-        // Environment variables from the Command proto
         for envVar in command.environmentVariables {
             args += ["-e", "\(envVar.name)=\(envVar.value)"]
         }
-
-        // OCI image
         args.append(toolchainImage)
-
-        // The command to run
         args += command.arguments
-
         return args
     }
 }
