@@ -251,6 +251,85 @@ struct ContainerExecutorTests {
         #expect(await backend.resolveImageCallCount == 2)
         #expect(await backend.createCallCount == 2)
     }
+
+    @Test("Stdout written by the process is stored in the result")
+    func stdoutStoredInResult() async throws {
+        let cas = try makeTempCAS()
+        let cache = try makeTempCache()
+        let expected = Data("hello world\n".utf8)
+        let backend = MockContainerBackend(stdout: expected)
+        let executor = makeExecutor(cas: cas, cache: cache, backend: backend)
+        let digest = try await storeMinimalAction(in: cas)
+
+        let result = try await executor.execute(actionDigest: digest, skipCacheLookup: true)
+
+        let stored = try await cas.fetch(result.stdoutDigest)
+        #expect(stored == expected)
+    }
+
+    @Test("Container is deleted after a successful execution")
+    func containerDeletedAfterSuccess() async throws {
+        let cas = try makeTempCAS()
+        let cache = try makeTempCache()
+        let backend = MockContainerBackend()
+        let executor = makeExecutor(cas: cas, cache: cache, backend: backend)
+        let digest = try await storeMinimalAction(in: cas)
+
+        _ = try await executor.execute(actionDigest: digest, skipCacheLookup: true)
+        // delete runs in a fire-and-forget Task inside the executor's defer block;
+        // yield long enough for the scheduled work to complete.
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(await backend.deleteCallCount == 1)
+    }
+
+    @Test("Container is deleted even when the action fails")
+    func containerDeletedAfterFailure() async throws {
+        let cas = try makeTempCAS()
+        let cache = try makeTempCache()
+        let backend = MockContainerBackend(exitCode: 1)
+        let executor = makeExecutor(cas: cas, cache: cache, backend: backend)
+        let digest = try await storeMinimalAction(in: cas)
+
+        _ = try await executor.execute(actionDigest: digest, skipCacheLookup: true)
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(await backend.deleteCallCount == 1)
+    }
+
+    @Test("Output files declared in the command are collected from the staging directory")
+    func outputFilesCollected() async throws {
+        let cas = try makeTempCAS()
+        let cache = try makeTempCache()
+
+        // Build an input root that contains out.txt so InputStager stages it.
+        let fileData = Data("result data".utf8)
+        let fileDigest = try await cas.store(fileData)
+        var fileNode = Build_Bazel_Remote_Execution_V2_FileNode()
+        fileNode.name = "out.txt"
+        fileNode.digest = fileDigest
+        var rootDir = Build_Bazel_Remote_Execution_V2_Directory()
+        rootDir.files = [fileNode]
+        let rootDigest = try await cas.store(rootDir.serializedData())
+
+        var cmd = Build_Bazel_Remote_Execution_V2_Command()
+        cmd.arguments = ["/bin/echo"]
+        cmd.outputPaths = ["out.txt"]
+        let cmdDigest = try await cas.store(cmd.serializedData())
+
+        var action = Build_Bazel_Remote_Execution_V2_Action()
+        action.commandDigest = cmdDigest
+        action.inputRootDigest = rootDigest
+        let actionDigest = try await cas.store(action.serializedData())
+
+        let backend = MockContainerBackend()
+        let executor = makeExecutor(cas: cas, cache: cache, backend: backend)
+
+        let result = try await executor.execute(actionDigest: actionDigest, skipCacheLookup: true)
+
+        #expect(result.outputFiles.count == 1)
+        #expect(result.outputFiles[0].path == "out.txt")
+    }
 }
 
 // MARK: - Helpers

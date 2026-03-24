@@ -50,7 +50,7 @@ swift test --enable-code-coverage
 xcrun llvm-cov report \
   "$BIN/LocalREAPIShimPackageTests.xctest/Contents/MacOS/LocalREAPIShimPackageTests" \
   -instr-profile "$BIN/codecov/default.profdata" \
-  -ignore-filename-regex '.*\.build/.*|.*Tests/.*'
+  -ignore-filename-regex '.*\.build/.*|.*Tests/.*|.*Live[A-Z].*'
 '''
 
 [tasks."test:e2e"]
