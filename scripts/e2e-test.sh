@@ -123,11 +123,22 @@ ok "Shim built: $SHIM_BIN"
 
 CAS_DIR="$(mktemp -d)"
 SHIM_LOG="$(mktemp)"
+STAGING_BASE="${TMPDIR}reapi-shim-staging"
+
+# Kill any stale shim left by a previous failed run
+STALE_PIDS="$(lsof -ti ":$REAPI_PORT" 2>/dev/null || true)"
+if [[ -n "$STALE_PIDS" ]]; then
+    info "Killing stale process(es) on port $REAPI_PORT: $STALE_PIDS"
+    echo "$STALE_PIDS" | xargs kill -9 2>/dev/null || true
+    sleep 0.5
+fi
+
 info "Starting shim (image=$REAPI_IMAGE, port=$REAPI_PORT, cas=$CAS_DIR)..."
 "$SHIM_BIN" \
     --port "$REAPI_PORT" \
     --image "$REAPI_IMAGE" \
     --cas-dir "$CAS_DIR" \
+    --keep-failed-staging \
     >"$SHIM_LOG" 2>&1 &
 SHIM_PID=$!
 trap stop_shim EXIT
@@ -176,10 +187,48 @@ fi
 ok "Warm build: no remote execution (ActionCache hit)."
 
 # ---------------------------------------------------------------------------
+# Step 7 — failing genrule (failure propagation)
+# ---------------------------------------------------------------------------
+#
+# The shim must return the container's non-zero exit code in the ActionResult
+# so Buck2 surfaces BUILD FAILED rather than hanging or masking the error.
+
+info "Failing genrule: buck2 build //:fail (expect BUILD FAILED)"
+buck2 clean 2>/dev/null || true
+FAIL_OUTPUT="$(buck2 build //:fail 2>&1)" || true
+echo "$FAIL_OUTPUT"
+
+if echo "$FAIL_OUTPUT" | grep -q "BUILD FAILED"; then
+    ok "Failing genrule: BUILD FAILED propagated correctly."
+else
+    fail "Failing genrule did not produce BUILD FAILED — exit code may not be propagating."
+fi
+
+# ---------------------------------------------------------------------------
+# Step 8 — keep-failed-staging
+# ---------------------------------------------------------------------------
+#
+# The shim was started with --keep-failed-staging, so the staging directory
+# for the failed action must still exist on disk.
+
+STAGED_DIRS=("$STAGING_BASE"/*)
+STAGED_EXISTS=false
+for d in "${STAGED_DIRS[@]}"; do
+    [[ -d "$d" ]] && STAGED_EXISTS=true && break
+done
+
+if $STAGED_EXISTS; then
+    ok "keep-failed-staging: staging directory preserved at ${STAGED_DIRS[*]}."
+else
+    fail "keep-failed-staging: no staging directory found under $STAGING_BASE."
+fi
+
+# ---------------------------------------------------------------------------
 # All assertions passed — clean up
 # ---------------------------------------------------------------------------
 
 stop_shim
 trap - EXIT
+rm -rf "$STAGING_BASE"
 cleanup_on_success
 ok "E2E test passed."

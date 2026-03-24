@@ -32,6 +32,9 @@ struct REAPIShim: AsyncParsableCommand {
     @Option(name: .long, help: "Path to the container CLI")
     var containerPath: String = "/usr/local/bin/container"
 
+    @Flag(name: .long, help: "Retain the staging directory when an action fails (for post-mortem inspection)")
+    var keepFailedStaging: Bool = false
+
     mutating func run() async throws {
         let casURL = URL(fileURLWithPath: casDir)
         let cas = try ContentAddressableStorage(rootURL: casURL)
@@ -41,7 +44,8 @@ struct REAPIShim: AsyncParsableCommand {
             cas: cas,
             actionCache: cache,
             toolchainImage: image,
-            containerPath: containerPath
+            containerPath: containerPath,
+            keepFailedStaging: keepFailedStaging
         )
 
         let server = GRPCServer(

@@ -3,3 +3,9 @@ genrule(
     out = "hello.txt",
     cmd = "echo 'hello from local REAPI' > $OUT",
 )
+
+genrule(
+    name = "fail",
+    out = "fail.txt",
+    cmd = "echo 'deliberate failure' >&2 && exit 1",
+)

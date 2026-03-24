@@ -11,6 +11,7 @@ actor ContainerExecutor {
     let actionCache: ActionCache
     let toolchainImage: String
     let containerPath: String
+    let keepFailedStaging: Bool
 
     private let stagingBaseURL: URL
     private var actionCounter = 0
@@ -19,12 +20,14 @@ actor ContainerExecutor {
         cas: ContentAddressableStorage,
         actionCache: ActionCache,
         toolchainImage: String,
-        containerPath: String = "/usr/local/bin/container"
+        containerPath: String = "/usr/local/bin/container",
+        keepFailedStaging: Bool = false
     ) {
         self.cas = cas
         self.actionCache = actionCache
         self.toolchainImage = toolchainImage
         self.containerPath = containerPath
+        self.keepFailedStaging = keepFailedStaging
         stagingBaseURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("reapi-shim-staging")
     }
@@ -55,8 +58,11 @@ actor ContainerExecutor {
         let stagingDir = stagingBaseURL.appendingPathComponent(
             "\(actionDigest.hash.prefix(16))-\(actionCounter)"
         )
+        var cleanupStaging = true
         defer {
-            try? FileManager.default.removeItem(at: stagingDir)
+            if cleanupStaging {
+                try? FileManager.default.removeItem(at: stagingDir)
+            }
         }
 
         let stager = InputStager(cas: cas)
@@ -73,6 +79,12 @@ actor ContainerExecutor {
             profile: profile
         )
 
+        // Preserve staging directory on failure when requested
+        if runResult.exitCode != 0, keepFailedStaging {
+            cleanupStaging = false
+            log("[Executor] staging preserved for post-mortem: \(stagingDir.path)")
+        }
+
         // 6. Collect outputs from the staging directory back into CAS
         let collector = OutputCollector(cas: cas)
         let outputPaths = command.outputPaths.isEmpty
@@ -83,11 +95,24 @@ actor ContainerExecutor {
             workDir: stagingDir
         )
 
-        // 7. Store stdout/stderr as CAS blobs for ActionResult
+        // 7–8. Store stdout/stderr and assemble ActionResult
+        let result = try await buildActionResult(runResult: runResult, outputFiles: outputFiles)
+
+        // 9. Cache successful results (exit code 0 only)
+        if runResult.exitCode == 0 {
+            await actionCache.put(actionDigest: actionDigest, result: result)
+        }
+
+        return result
+    }
+
+    private func buildActionResult(
+        runResult: RunResult,
+        outputFiles: [Build_Bazel_Remote_Execution_V2_OutputFile]
+    ) async throws -> Build_Bazel_Remote_Execution_V2_ActionResult {
         let stdoutDigest = try await cas.store(runResult.stdout)
         let stderrDigest = try await cas.store(runResult.stderr)
 
-        // 8. Build ActionResult
         var result = Build_Bazel_Remote_Execution_V2_ActionResult()
         result.exitCode = runResult.exitCode
         result.outputFiles = outputFiles
@@ -97,11 +122,6 @@ actor ContainerExecutor {
         var meta = Build_Bazel_Remote_Execution_V2_ExecutedActionMetadata()
         meta.worker = "local-apple-container"
         result.executionMetadata = meta
-
-        // 9. Cache successful results (exit code 0 only)
-        if runResult.exitCode == 0 {
-            await actionCache.put(actionDigest: actionDigest, result: result)
-        }
 
         return result
     }
