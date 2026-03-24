@@ -755,6 +755,23 @@ sequenceDiagram
 - If `--trace` is enabled, the simulation writes potentially large VCD/FST files. These must be written to a directory shared back to the host (via VirtioFS directory sharing), not trapped inside the ephemeral VM's rootfs.
 - For toy designs, simulation memory usage is modest (tens of MB). For larger designs with tracing enabled, VCD files can grow into the gigabytes — this would stress the 8 GB memory budget and should be monitored.
 
+### 7.7 Migration Path to Beefier Hardware
+
+| Milestone | Hardware | What Changes |
+|---|---|---|
+| **PoC (now)** | 8 GB MBP M2 | Sequential ephemeral VMs, local-only CAS, small Verilator builds |
+| **Iteration 1** | Mac mini M2 Pro (32 GB) | Warm VM pool (4-8 VMs), parallel action execution, larger designs, worker-side action profiling |
+| **Iteration 2** | Mac mini + remote cluster | Full hybrid architecture (§3), CAS federation, mixed local/remote dispatch |
+| **Iteration 3** | Mac mini fleet | Multi-machine worker pool, shared CAS, CI/CD integration |
+
+The key architectural invariants that hold across all milestones:
+- Buck2 talks REAPI to a local endpoint.
+- Actions execute inside Apple Container VMs.
+- CAS provides content-addressed storage.
+- The OCI toolchain image is the single source of truth for the build environment.
+
+When moving from the MBP to a Mac mini, the changes are configuration, not code: increase the warm pool size, raise VM memory limits, enable parallel execution. The Swift shim's API surface doesn't change.
+
 ---
 
 ## 8. Debugging Build and Simulation Failures
@@ -926,10 +943,6 @@ The shim should prefix error messages with a classification hint:
   → Consider increasing memory limit for this action category.
 ```
 
-### 7.7 Migration Path to Beefier Hardware
-
-The architecture is designed to scale up without redesign:
-
 ### 8.7 Error Message Clarity: The REAPI Layer Problem
 
 The local REAPI shim introduces an indirection layer that will make error messages more confusing than a direct local build, unless explicitly mitigated. This is the single biggest developer experience risk in the PoC and must be addressed in Phase 0.
@@ -1060,25 +1073,6 @@ This principle should be enforced by integration tests in the shim: for a known-
 
 ---
 
-### 7.7 Migration Path to Beefier Hardware
-
-| Milestone | Hardware | What Changes |
-|---|---|---|
-| **PoC (now)** | 8 GB MBP M2 | Sequential ephemeral VMs, local-only CAS, small Verilator builds |
-| **Iteration 1** | Mac mini M2 Pro (32 GB) | Warm VM pool (4-8 VMs), parallel action execution, larger designs, worker-side action profiling |
-| **Iteration 2** | Mac mini + remote cluster | Full hybrid architecture (§3), CAS federation, mixed local/remote dispatch |
-| **Iteration 3** | Mac mini fleet | Multi-machine worker pool, shared CAS, CI/CD integration |
-
-The key architectural invariants that hold across all milestones:
-- Buck2 talks REAPI to a local endpoint.
-- Actions execute inside Apple Container VMs.
-- CAS provides content-addressed storage.
-- The OCI toolchain image is the single source of truth for the build environment.
-
-When moving from the MBP to a Mac mini, the changes are configuration, not code: increase the warm pool size, raise VM memory limits, enable parallel execution. The Swift shim's API surface doesn't change.
-
----
-
 ## 9. Implementation Roadmap
 
 ```mermaid
@@ -1095,7 +1089,7 @@ flowchart TD
     P1["**Phase 1**
     Harden · 8 GB MBP M2
     ───────────────
-    Persistent ActionCache (SQLite)
+    Persistent ActionCache (filesystem)
     Worker-side action profiling
     VirtioFS input staging
     Structured logging (os_log)"]
@@ -1149,16 +1143,17 @@ flowchart TD
 
 **Shim**
 
-- Add persistent ActionCache (SQLite) so cache hits survive daemon restarts. The in-memory cache is lost on every restart, undermining the cache hit rate story.
+- Add persistent ActionCache (filesystem-backed, same layout as CAS) so cache hits survive daemon restarts. The in-memory cache is lost on every restart, undermining the cache hit rate story. SQLite is unnecessary — ActionResult entries are small serialised protobufs keyed by hash, making a flat-file layout (identical to the CAS) the idiomatic choice with no added dependencies.
 - Replace action profiling by argv pattern-matching (which never fires because Buck2 wraps all genrules in `bash -e`) with post-hoc resource tracking: record actual peak memory and wall time per completed action using OS-level measurement, accumulate in a local store, and use as input to VM limit heuristics.
 - Drop the VirtioFS-vs-file-copy exploration: staging now targets case-sensitive ephemeral APFS volumes (§4.7), which changes the framing from a performance question to a correctness question. VirtioFS semantics are the *problem* (host case-folding propagates to the guest), not a solution.
 - Add `--keep-failed-staging` CLI flag: retain the staging volume on non-zero exit for post-mortem inspection (`diskutil list` surfaces it by name; normal teardown is unchanged).
 - Add `os_log` structured logging and basic diagnostics, replacing the current `print()` calls.
 
-**Dependencies**
+**Dependencies and testing**
 
 - ~~Migrate `grpc-swift` from `github.com/grpc/grpc-swift` (maintenance-only after 2.2.3) to the canonical v2 repo `github.com/grpc/grpc-swift-2` (active development, currently 2.3.0). Companion packages `grpc-swift-protobuf` and `grpc-swift-nio-transport` stay at their original URLs.~~ ✓ Done
 - ~~Bump `grpc-swift-protobuf` (→ 2.2.1) and `grpc-swift-nio-transport` (→ 2.5.0) to resolve the `ProtobufSerializer`/`ProtobufDeserializer` deprecation warnings in generated stubs.~~ ✓ Done
+- ~~Add gRPC service integration tests covering `CASService`, `ActionCacheService`, and `CapabilitiesService` using `GRPCInProcessTransport` (no network socket, no containers). Enable client stub generation (`"clients": true` in proto generator config).~~ ✓ Done — 13 tests in `ServiceIntegrationTests.swift`
 
 **Validation**
 
