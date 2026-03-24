@@ -1,13 +1,13 @@
 {
-  "originHash" : "e7edd702cb380c207d99c6b5cf3774bcd5745357666891d177d146f289caace8",
+  "originHash" : "8ff2e56c5a7cb1d081b745d140048605ad5203b5b991dacb81f575f1972ab3b1",
   "pins" : [
     {
       "identity" : "async-http-client",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swift-server/async-http-client.git",
       "state" : {
-        "revision" : "c5784ca81535cc6a92d900f84abd070dfb0e9392",
-        "version" : "1.32.1"
+        "revision" : "3b57e00556515b126ad74455de1e6fa456856391",
+        "version" : "1.33.0"
       }
     },
     {
@@ -51,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/grpc/grpc-swift-nio-transport.git",
       "state" : {
-        "revision" : "4f885975da3ee7fdbd0ba1ca51dbbb5c1b9707cf",
-        "version" : "2.5.0"
+        "revision" : "48d0d3b9910f294efde40dd274067c51000fb10e",
+        "version" : "2.6.0"
       }
     },
     {
