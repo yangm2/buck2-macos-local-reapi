@@ -1,4 +1,4 @@
-import Darwin
+import ContainerResource
 import Foundation
 import OSLog
 import SwiftProtobuf
@@ -14,25 +14,25 @@ actor ContainerExecutor: ActionExecutor {
     let cas: ContentAddressableStorage
     let actionCache: ActionCache
     let toolchainImage: String
-    let containerPath: String
     let keepFailedStaging: Bool
 
     private let stagingBaseURL: URL
     private let profileStore = ResourceProfileStore()
     private var actionCounter = 0
+    private let backend: any ContainerBackend
 
     init(
         cas: ContentAddressableStorage,
         actionCache: ActionCache,
         toolchainImage: String,
-        containerPath: String = "/usr/local/bin/container",
-        keepFailedStaging: Bool = false
+        keepFailedStaging: Bool = false,
+        backend: any ContainerBackend = LiveContainerBackend()
     ) {
         self.cas = cas
         self.actionCache = actionCache
         self.toolchainImage = toolchainImage
-        self.containerPath = containerPath
         self.keepFailedStaging = keepFailedStaging
+        self.backend = backend
         stagingBaseURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("reapi-shim-staging")
     }
@@ -138,8 +138,13 @@ actor ContainerExecutor: ActionExecutor {
         let stderr: Data
     }
 
-    /// Launches the toolchain container, waits for it to exit, records its
-    /// resource usage, and returns stdout, stderr, and exit code.
+    /// Launches a toolchain container via the container-apiserver daemon, waits for
+    /// it to exit, records resource usage, and returns stdout, stderr, and exit code.
+    ///
+    /// The container is created with an empty `networks` array (hermetic — no
+    /// network access) and a single VirtioFS mount exposing the action's staging
+    /// directory as `/workspace` inside the VM.
+    ///
     /// Stderr is passed through ``ErrorClassifier`` to rewrite container-internal
     /// paths and produce a human-readable message for non-zero exits.
     private func runContainer(
@@ -148,87 +153,111 @@ actor ContainerExecutor: ActionExecutor {
         stagingDir: URL,
         profile: ActionProfile
     ) async throws -> RunResult {
-        let args = buildContainerArgs(command: command, stagingDir: stagingDir, profile: profile)
+        let containerId = "reapi-\(actionHash.prefix(12))-\(actionCounter)"
+        let config = try await buildContainerConfig(
+            containerId: containerId,
+            command: command,
+            stagingDir: stagingDir,
+            profile: profile
+        )
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: containerPath)
-        process.arguments = args
+        let wallStart = Date()
+        try await backend.create(id: containerId, config: config)
+        defer { Task { try? await self.backend.delete(id: containerId) } }
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        let process = try await backend.bootstrap(
+            id: containerId,
+            stdout: stdoutPipe.fileHandleForWriting,
+            stderr: stderrPipe.fileHandleForWriting
+        )
+        try await process.start()
 
-        let wallStart = Date()
-        try process.run()
+        // Close our copies of the write ends. The daemon holds its own copies via XPC
+        // and will close them when the container process exits, signalling EOF to readers.
+        try? stdoutPipe.fileHandleForWriting.close()
+        try? stderrPipe.fileHandleForWriting.close()
 
-        // Async-friendly wait to avoid blocking the actor
-        let stdout = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
-            DispatchQueue.global().async {
-                process.waitUntilExit()
-                continuation.resume(returning: stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+        // Drain I/O concurrently to prevent pipe-buffer deadlock while the process runs.
+        let stdoutTask = Task.detached { stdoutPipe.fileHandleForReading.readDataToEndOfFile() }
+        let stderrTask = Task.detached { stderrPipe.fileHandleForReading.readDataToEndOfFile() }
+
+        // Poll memory stats concurrently every 250 ms; track peak usage.
+        let capturedBackend = backend
+        let statsTask = Task.detached { () -> Int in
+            var peak = 0
+            while !Task.isCancelled {
+                let statsResult = try? await capturedBackend.stats(id: containerId)
+                if let bytes = statsResult?.memoryUsageBytes {
+                    peak = max(peak, Int(bytes / (1024 * 1024)))
+                }
+                try? await Task.sleep(for: .milliseconds(250))
             }
-        }
-        let stderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-
-        await recordPostRunMetrics(hash: actionHash, wallStart: wallStart)
-
-        // Rewrite container-internal paths and classify any failure
-        var stderrString = String(data: stderr, encoding: .utf8) ?? ""
-        stderrString = ErrorClassifier.rewritePaths(stderrString)
-
-        let exitCode = process.terminationStatus
-        if exitCode != 0 {
-            let classified = ErrorClassifier.classify(
-                exitCode: exitCode,
-                signal: process.terminationReason == .uncaughtSignal ? Int32(exitCode) : nil,
-                stderr: stderrString,
-                memoryLimitMB: profile.memoryMB,
-                containerError: nil
-            )
-            stderrString = ErrorClassifier.format(classified)
+            return peak
         }
 
-        return RunResult(exitCode: exitCode, stdout: stdout, stderr: Data(stderrString.utf8))
-    }
+        let exitCode = try await process.wait()
+        statsTask.cancel()
+        let peakMemMB = await statsTask.value
 
-    /// Records wall time and peak RSS for the last exited child process.
-    ///
-    /// `ru_maxrss` via `RUSAGE_CHILDREN` is cumulative (maximum across all
-    /// children that have exited since this process started), so the value
-    /// converges toward the peak observed across all runs — acceptable for
-    /// Phase 1 heuristics.
-    private func recordPostRunMetrics(hash: String, wallStart: Date) async {
         let wallTimeSec = Date().timeIntervalSince(wallStart)
-        var rusageStats = rusage()
-        Darwin.getrusage(RUSAGE_CHILDREN, &rusageStats)
-        // ru_maxrss is in bytes on macOS (unlike Linux where it is kibibytes)
-        let peakMemoryMB = Int(rusageStats.ru_maxrss) / (1024 * 1024)
-        let shortHash = hash.prefix(16)
-        logger.debug("action \(shortHash, privacy: .public) wall=\(wallTimeSec)s rss=\(peakMemoryMB)MiB")
-        await profileStore.record(hash: hash, memoryMB: peakMemoryMB, wallTimeSec: wallTimeSec)
+        logger.debug("action \(actionHash.prefix(16), privacy: .public) wall=\(wallTimeSec)s rss=\(peakMemMB)MiB")
+        await profileStore.record(hash: actionHash, memoryMB: peakMemMB, wallTimeSec: wallTimeSec)
+
+        let stdout = await stdoutTask.value
+        let stderr = await stderrTask.value
+
+        return RunResult(
+            exitCode: exitCode,
+            stdout: stdout,
+            stderr: classifyStderr(stderr, exitCode: exitCode, profile: profile)
+        )
     }
 
-    /// Builds the argument list for `container run`.
-    private func buildContainerArgs(
+    /// Builds the ``ContainerConfiguration`` for a single action run.
+    ///
+    /// The image is resolved (and cached) from the daemon on first call.
+    /// Networks are intentionally left empty so the VM has no network access.
+    private func buildContainerConfig(
+        containerId: String,
         command: Build_Bazel_Remote_Execution_V2_Command,
         stagingDir: URL,
         profile: ActionProfile
-    ) -> [String] {
-        var args = ["run", "--rm"]
-        args += ["-m", "\(profile.memoryMB)m"]
-        args += ["-c", "\(profile.cpus)"]
-        args += ["--network", "none"]
-        args += ["-v", "\(stagingDir.path):/workspace"]
+    ) async throws -> ContainerConfiguration {
+        let imageDescription = try await backend.resolveImage(toolchainImage)
         let workDir = command.workingDirectory.isEmpty
             ? "/workspace"
             : "/workspace/\(command.workingDirectory)"
-        args += ["-w", workDir]
-        for envVar in command.environmentVariables {
-            args += ["-e", "\(envVar.name)=\(envVar.value)"]
+        let processConfig = ProcessConfiguration(
+            executable: command.arguments[0],
+            arguments: Array(command.arguments.dropFirst()),
+            environment: command.environmentVariables.map { "\($0.name)=\($0.value)" },
+            workingDirectory: workDir
+        )
+        var config = ContainerConfiguration(id: containerId, image: imageDescription, process: processConfig)
+        var resources = ContainerConfiguration.Resources()
+        resources.cpus = profile.cpus
+        resources.memoryInBytes = UInt64(profile.memoryMB) * 1024 * 1024
+        config.resources = resources
+        config.mounts = [.virtiofs(source: stagingDir.path, destination: "/workspace", options: [])]
+        return config
+    }
+
+    /// Rewrites container-internal paths and classifies non-zero exits.
+    private func classifyStderr(_ raw: Data, exitCode: Int32, profile: ActionProfile) -> Data {
+        var text = ErrorClassifier.rewritePaths(String(data: raw, encoding: .utf8) ?? "")
+        if exitCode != 0 {
+            // Exit code 137 = 128 + SIGKILL(9), indicating an OOM or forced termination.
+            let classified = ErrorClassifier.classify(
+                exitCode: exitCode,
+                signal: exitCode == 137 ? 9 : nil,
+                stderr: text,
+                memoryLimitMB: profile.memoryMB,
+                containerError: nil
+            )
+            text = ErrorClassifier.format(classified)
         }
-        args.append(toolchainImage)
-        args += command.arguments
-        return args
+        return Data(text.utf8)
     }
 }

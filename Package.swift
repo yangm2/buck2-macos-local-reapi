@@ -9,6 +9,8 @@ let package = Package(
         .package(url: "https://github.com/grpc/grpc-swift-protobuf.git", from: "2.2.1"),
         .package(url: "https://github.com/grpc/grpc-swift-nio-transport.git", from: "2.5.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
+        .package(url: "https://github.com/apple/container.git", from: "0.10.0"),
+        .package(url: "https://github.com/apple/containerization.git", exact: "0.26.3"),
     ],
     targets: [
         .executableTarget(
@@ -18,6 +20,8 @@ let package = Package(
                 .product(name: "GRPCNIOTransportHTTP2", package: "grpc-swift-nio-transport"),
                 .product(name: "GRPCProtobuf", package: "grpc-swift-protobuf"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "ContainerAPIClient", package: "container"),
+                .product(name: "ContainerResource", package: "container"),
             ],
             path: "Sources/reapi-shim",
             plugins: [
@@ -29,6 +33,8 @@ let package = Package(
             dependencies: [
                 .target(name: "reapi-shim"),
                 .product(name: "GRPCInProcessTransport", package: "grpc-swift-2"),
+                .product(name: "ContainerResource", package: "container"),
+                .product(name: "ContainerizationOCI", package: "containerization"),
             ],
             path: "Tests/reapi-shimTests"
         ),

@@ -41,9 +41,6 @@ struct REAPIShim: AsyncParsableCommand {
     @Option(name: .long, help: "OCI image for the toolchain container")
     var image: String = "verilator-toolchain:latest"
 
-    @Option(name: .long, help: "Path to the container CLI")
-    var containerPath: String = "/usr/local/bin/container"
-
     @Flag(name: .long, help: "Retain the staging directory when an action fails (for post-mortem inspection)")
     var keepFailedStaging: Bool = false
 
@@ -64,8 +61,8 @@ struct REAPIShim: AsyncParsableCommand {
             cas: cas,
             actionCache: cache,
             toolchainImage: image,
-            containerPath: containerPath,
-            keepFailedStaging: keepFailedStaging
+            keepFailedStaging: keepFailedStaging,
+            backend: LiveContainerBackend()
         )
         let remote: (any ActionExecutor)? = try remoteEndpoint.map { endpoint in
             try RemoteExecutor(localCAS: cas, endpoint: endpoint)
