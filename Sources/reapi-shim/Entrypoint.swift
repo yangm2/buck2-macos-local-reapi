@@ -9,15 +9,18 @@ private let logger = Logger(subsystem: "dev.reapi-shim", category: "Startup")
 
 /// Entry point for the `reapi-shim` executable.
 ///
-/// Parses CLI options, wires together the CAS, ActionCache, and
-/// ContainerExecutor, then starts a plaintext gRPC server on the configured
-/// port serving all four REAPI services (Capabilities, CAS, ActionCache,
-/// Execution).
+/// Parses CLI options, wires together the CAS, ActionCache, and executor
+/// hierarchy (``ContainerExecutor`` wrapped in a ``PlatformRouter``), then
+/// starts a plaintext gRPC server serving all four REAPI services.
+///
+/// When `--remote-endpoint` is provided, the ``PlatformRouter`` forwards
+/// actions that require GPU, macOS, or high-memory resources to the
+/// specified upstream REAPI server; all other actions run locally.
 @main
 struct REAPIShim: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "reapi-shim",
-        abstract: "Local REAPI server backed by ephemeral Apple Container VMs (Phase 1)"
+        abstract: "Local REAPI server backed by ephemeral Apple Container VMs (Phase 2)"
     )
 
     @Option(name: .long, help: "Port to listen on")
@@ -44,6 +47,12 @@ struct REAPIShim: AsyncParsableCommand {
     @Flag(name: .long, help: "Retain the staging directory when an action fails (for post-mortem inspection)")
     var keepFailedStaging: Bool = false
 
+    @Option(
+        name: .long,
+        help: "Upstream REAPI endpoint for remote dispatch (e.g. grpc://buildbuddy.internal:8080)"
+    )
+    var remoteEndpoint: String?
+
     mutating func run() async throws {
         let casURL = URL(fileURLWithPath: casDir)
         let cas = try ContentAddressableStorage(rootURL: casURL)
@@ -51,14 +60,17 @@ struct REAPIShim: AsyncParsableCommand {
         let actionCacheURL = URL(fileURLWithPath: actionCacheDir)
         let cache = try ActionCache(rootURL: actionCacheURL)
 
-        let opStore = OperationStore()
-        let executor = ContainerExecutor(
+        let local = ContainerExecutor(
             cas: cas,
             actionCache: cache,
             toolchainImage: image,
             containerPath: containerPath,
             keepFailedStaging: keepFailedStaging
         )
+        let remote: (any ActionExecutor)? = try remoteEndpoint.map { endpoint in
+            try RemoteExecutor(localCAS: cas, endpoint: endpoint)
+        }
+        let executor = PlatformRouter(cas: cas, local: local, remote: remote)
 
         let server = GRPCServer(
             transport: .http2NIOPosix(
@@ -69,7 +81,7 @@ struct REAPIShim: AsyncParsableCommand {
                 CapabilitiesService(),
                 CASService(cas: cas),
                 ActionCacheService(cache: cache),
-                ExecutionService(executor: executor, operationStore: opStore)
+                ExecutionService(executor: executor, operationStore: OperationStore())
             ]
         )
 

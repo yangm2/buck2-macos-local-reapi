@@ -40,6 +40,19 @@ run = "swiftlint lint --strict Sources Tests"
 description = "Run the test suite"
 run = "PROTOC_PATH=$(which protoc) swift test"
 
+[tasks."test:coverage"]
+description = "Run tests with code coverage and print a per-file summary"
+run = '''
+set -e
+export PROTOC_PATH=$(which protoc)
+BIN=$(swift build --show-bin-path)
+swift test --enable-code-coverage
+xcrun llvm-cov report \
+  "$BIN/LocalREAPIShimPackageTests.xctest/Contents/MacOS/LocalREAPIShimPackageTests" \
+  -instr-profile "$BIN/codecov/default.profdata" \
+  -ignore-filename-regex '.*\.build/.*|.*Tests/.*'
+'''
+
 [tasks."test:e2e"]
 description = "Run Layer 2 E2E test (local dev only — requires buck2, Apple Container, ubuntu:24.04)"
 run = "bash scripts/e2e-test.sh"

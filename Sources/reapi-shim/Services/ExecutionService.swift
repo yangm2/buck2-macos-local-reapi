@@ -3,14 +3,14 @@ import GRPCCore
 import GRPCProtobuf
 import SwiftProtobuf
 
-/// REAPI `Execution` service that dispatches actions to ``ContainerExecutor``.
+/// REAPI `Execution` service that dispatches actions to an ``ActionExecutor``.
 ///
 /// `Execute` streams a pending `Operation` immediately, runs the action inside
 /// an ephemeral Apple Container VM, then streams the completed (or failed)
 /// `Operation`. `WaitExecution` resumes a previously issued operation via the
 /// shared ``OperationStore``.
 struct ExecutionService: Build_Bazel_Remote_Execution_V2_Execution.SimpleServiceProtocol {
-    let executor: ContainerExecutor
+    let executor: any ActionExecutor
     let operationStore: OperationStore
 
     func execute(

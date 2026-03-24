@@ -63,7 +63,7 @@ struct CASTests {
         let cas = try makeTempCAS()
         let data = Data("shard test".utf8)
         let digest = try await cas.store(data)
-        let url = await cas.blobURL(for: digest)
+        let url = cas.blobURL(for: digest)
         let prefix = String(digest.hash.prefix(2))
         #expect(url.path.contains("/\(prefix)/\(digest.hash)"))
         #expect(FileManager.default.fileExists(atPath: url.path))

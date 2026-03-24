@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import SwiftProtobuf
 
@@ -5,6 +6,10 @@ import SwiftProtobuf
 ///
 /// The staged directory is bind-mounted read-write into the container, so
 /// output files written by the action appear on the host after execution.
+///
+/// Files are materialized using `clonefile(2)` when the CAS and staging
+/// directory share an APFS volume, giving O(1) copy-on-write clones at
+/// near-zero cost. A byte-copy fallback handles cross-device cases.
 struct InputStager {
     let cas: ContentAddressableStorage
 
@@ -29,17 +34,10 @@ struct InputStager {
         let data = try await cas.fetch(digest)
         let dir = try Build_Bazel_Remote_Execution_V2_Directory(serializedBytes: data)
 
-        // Stage files
+        // Stage files — attempt O(1) APFS clone; fall back to byte copy.
         for file in dir.files {
             let fileURL = dirURL.appendingPathComponent(file.name)
-            let content = try await cas.fetch(file.digest)
-            try content.write(to: fileURL)
-            if file.isExecutable {
-                try FileManager.default.setAttributes(
-                    [.posixPermissions: 0o755],
-                    ofItemAtPath: fileURL.path
-                )
-            }
+            try await stageFile(file, at: fileURL)
         }
 
         // Stage symlinks
@@ -59,6 +57,30 @@ struct InputStager {
                 withIntermediateDirectories: true
             )
             try await stageDirectory(digest: subdir.digest, at: subdirURL)
+        }
+    }
+
+    /// Materializes a single file, preferring an APFS clone over a byte copy.
+    ///
+    /// `clonefile(2)` shares extents between the CAS blob and the staged file
+    /// with copy-on-write semantics — no data is copied unless one side writes.
+    /// It fails with `EXDEV` when src and dst live on different volumes, which
+    /// triggers the byte-copy fallback transparently.
+    private func stageFile(
+        _ file: Build_Bazel_Remote_Execution_V2_FileNode,
+        at fileURL: URL
+    ) async throws {
+        let src = cas.blobURL(for: file.digest).path
+        let dst = fileURL.path
+        if Darwin.clonefile(src, dst, 0) != 0 {
+            let content = try await cas.fetch(file.digest)
+            try content.write(to: fileURL)
+        }
+        if file.isExecutable {
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: dst
+            )
         }
     }
 }

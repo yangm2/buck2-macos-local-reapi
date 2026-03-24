@@ -61,7 +61,7 @@ actor ContentAddressableStorage {
 
     // MARK: - Helpers
 
-    func blobURL(for digest: Build_Bazel_Remote_Execution_V2_Digest) -> URL {
+    nonisolated func blobURL(for digest: Build_Bazel_Remote_Execution_V2_Digest) -> URL {
         let hash = digest.hash
         let prefix = String(hash.prefix(2))
         return rootURL

@@ -10,7 +10,7 @@ private let logger = Logger(subsystem: "dev.reapi-shim", category: "Executor")
 /// Each action follows the lifecycle: stage inputs → launch container → capture outputs →
 /// destroy container. The actor serialises execution so only one VM runs at a time,
 /// which is the correct constraint for an 8 GB MacBook Pro (Phase 1).
-actor ContainerExecutor {
+actor ContainerExecutor: ActionExecutor {
     let cas: ContentAddressableStorage
     let actionCache: ActionCache
     let toolchainImage: String
