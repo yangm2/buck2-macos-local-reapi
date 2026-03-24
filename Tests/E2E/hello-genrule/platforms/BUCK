@@ -1,0 +1,6 @@
+load(":defs.bzl", "re_platform")
+
+re_platform(
+    name = "default",
+    visibility = ["PUBLIC"],
+)

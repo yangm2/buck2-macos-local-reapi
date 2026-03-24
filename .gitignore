@@ -7,3 +7,7 @@
 *.swiftdeps
 *.dia
 *.d
+
+# E2E test fixture — generated at runtime by e2e-test.sh
+Tests/E2E/hello-genrule/prelude/
+Tests/E2E/hello-genrule/buck-out/

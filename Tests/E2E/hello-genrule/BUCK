@@ -1,0 +1,5 @@
+genrule(
+    name = "hello",
+    out = "hello.txt",
+    cmd = "echo 'hello from local REAPI' > $OUT",
+)
