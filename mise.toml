@@ -66,3 +66,6 @@ xcrun llvm-cov report \
 [tasks."test:e2e"]
 description = "Run Layer 2 E2E test (local dev only — requires buck2, Apple Container, ubuntu:24.04)"
 run = "bash scripts/e2e-test.sh"
+
+[settings]
+experimental = true
