@@ -34,8 +34,7 @@ enum RemoteExecutorError: Error, CustomStringConvertible {
 /// - `grpcs://` — TLS with system root certificates
 actor RemoteExecutor: ActionExecutor {
     private let localCAS: ContentAddressableStorage
-    private let grpcClient: GRPCClient<HTTP2ClientTransport.Posix>
-    private let runTask: Task<Void, Error>
+    private let remote: any RemoteREAPIBackend
 
     init(localCAS: ContentAddressableStorage, endpoint: String) throws {
         guard let url = URL(string: endpoint),
@@ -50,14 +49,14 @@ actor RemoteExecutor: ActionExecutor {
         )
         let client = GRPCClient(transport: transport)
         self.localCAS = localCAS
-        grpcClient = client
-        runTask = Task { try await client.runConnections() }
+        remote = LiveRemoteREAPIBackend(grpcClient: client)
         logger.info("remote executor → \(host, privacy: .public):\(port)")
     }
 
-    deinit {
-        grpcClient.beginGracefulShutdown()
-        runTask.cancel()
+    /// Test-only initialiser — skips network setup, injects a mock backend.
+    init(localCAS: ContentAddressableStorage, remote: any RemoteREAPIBackend) {
+        self.localCAS = localCAS
+        self.remote = remote
     }
 
     // MARK: - ActionExecutor
@@ -66,79 +65,53 @@ actor RemoteExecutor: ActionExecutor {
         actionDigest: Build_Bazel_Remote_Execution_V2_Digest,
         skipCacheLookup: Bool
     ) async throws -> Build_Bazel_Remote_Execution_V2_ActionResult {
-        try await uploadMissingBlobs(for: actionDigest)
-        return try await forwardExecute(
-            actionDigest: actionDigest,
-            skipCacheLookup: skipCacheLookup
-        )
-    }
-
-    // MARK: - CAS forwarding
-
-    /// Ensures the remote CAS has every blob required by the action.
-    private func uploadMissingBlobs(
-        for actionDigest: Build_Bazel_Remote_Execution_V2_Digest
-    ) async throws {
-        let allDigests = try await collectDigests(for: actionDigest)
-        let casClient = Build_Bazel_Remote_Execution_V2_ContentAddressableStorage
-            .Client(wrapping: grpcClient)
-        var findReq = Build_Bazel_Remote_Execution_V2_FindMissingBlobsRequest()
-        findReq.blobDigests = allDigests
-        let findResp = try await casClient.findMissingBlobs(request: .init(message: findReq))
-        guard !findResp.missingBlobDigests.isEmpty else { return }
-        var updateReq = Build_Bazel_Remote_Execution_V2_BatchUpdateBlobsRequest()
-        for digest in findResp.missingBlobDigests {
-            var entry = Build_Bazel_Remote_Execution_V2_BatchUpdateBlobsRequest.Request()
-            entry.digest = digest
-            entry.data = try await localCAS.fetch(digest)
-            updateReq.requests.append(entry)
+        let allDigests = try await Self.collectDigests(for: actionDigest, cas: localCAS)
+        let missing = try await remote.findMissingBlobs(allDigests)
+        if !missing.isEmpty {
+            var entries: [(Build_Bazel_Remote_Execution_V2_Digest, Data)] = []
+            for digest in missing {
+                try await entries.append((digest, localCAS.fetch(digest)))
+            }
+            try await remote.batchUpdateBlobs(entries)
         }
-        _ = try await casClient.batchUpdateBlobs(request: .init(message: updateReq))
+        return try await remote.execute(actionDigest: actionDigest, skipCacheLookup: skipCacheLookup)
     }
+
+    // MARK: - Digest collection
 
     /// Walks the action's Directory tree and collects all referenced digests.
-    private func collectDigests(
-        for actionDigest: Build_Bazel_Remote_Execution_V2_Digest
+    static func collectDigests(
+        for actionDigest: Build_Bazel_Remote_Execution_V2_Digest,
+        cas: ContentAddressableStorage
     ) async throws -> [Build_Bazel_Remote_Execution_V2_Digest] {
         var digests: [Build_Bazel_Remote_Execution_V2_Digest] = [actionDigest]
-        let actionData = try await localCAS.fetch(actionDigest)
+        let actionData = try await cas.fetch(actionDigest)
         let action = try Build_Bazel_Remote_Execution_V2_Action(serializedBytes: actionData)
         digests.append(action.commandDigest)
-        try await collectDirectoryDigests(action.inputRootDigest, into: &digests)
+        try await collectDirectoryDigests(action.inputRootDigest, into: &digests, cas: cas)
         return digests
     }
 
-    private func collectDirectoryDigests(
+    static func collectDirectoryDigests(
         _ digest: Build_Bazel_Remote_Execution_V2_Digest,
-        into digests: inout [Build_Bazel_Remote_Execution_V2_Digest]
+        into digests: inout [Build_Bazel_Remote_Execution_V2_Digest],
+        cas: ContentAddressableStorage
     ) async throws {
         digests.append(digest)
-        let data = try await localCAS.fetch(digest)
+        let data = try await cas.fetch(digest)
         let dir = try Build_Bazel_Remote_Execution_V2_Directory(serializedBytes: data)
         for file in dir.files {
             digests.append(file.digest)
         }
         for subdir in dir.directories {
-            try await collectDirectoryDigests(subdir.digest, into: &digests)
+            try await collectDirectoryDigests(subdir.digest, into: &digests, cas: cas)
         }
     }
 
-    // MARK: - Execute forwarding
+    // MARK: - Execute response parsing
 
-    private func forwardExecute(
-        actionDigest: Build_Bazel_Remote_Execution_V2_Digest,
-        skipCacheLookup: Bool
-    ) async throws -> Build_Bazel_Remote_Execution_V2_ActionResult {
-        let execClient = Build_Bazel_Remote_Execution_V2_Execution.Client(wrapping: grpcClient)
-        var req = Build_Bazel_Remote_Execution_V2_ExecuteRequest()
-        req.actionDigest = actionDigest
-        req.skipCacheLookup = skipCacheLookup
-        return try await execClient.execute(request: .init(message: req)) { response in
-            try await Self.extractResult(from: response)
-        }
-    }
-
-    private static func extractResult(
+    /// Unpacks the ``ActionResult`` from an Execute streaming response.
+    static func extractResult(
         from response: GRPCCore.StreamingClientResponse<Google_Longrunning_Operation>
     ) async throws -> Build_Bazel_Remote_Execution_V2_ActionResult {
         for try await operation in response.messages {
