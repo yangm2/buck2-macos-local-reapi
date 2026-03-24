@@ -1,7 +1,7 @@
 {
     "generate": {
         "servers": true,
-        "clients": false,
+        "clients": true,
         "messages": true
     },
     "generatedSource": {

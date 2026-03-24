@@ -28,6 +28,7 @@ let package = Package(
             name: "reapi-shimTests",
             dependencies: [
                 .target(name: "reapi-shim"),
+                .product(name: "GRPCInProcessTransport", package: "grpc-swift-2"),
             ],
             path: "Tests/reapi-shimTests"
         ),
