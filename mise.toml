@@ -7,7 +7,7 @@ protoc = "24.4"
 description = "Remove Swift index-build artefacts that spill to the package root"
 # These are emitted by the VS Code Swift extension's background indexing
 # process and cannot be redirected by any current toolchain setting.
-run = "rm -f *.d *.swiftmodule *.swiftdeps *.dia"
+run = "rm -f *.d *.swiftmodule *.swiftdeps* *.dia"
 
 [tasks.clean]
 description = "Full clean: spill artefacts + SPM build directory"
