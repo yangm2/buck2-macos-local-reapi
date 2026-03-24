@@ -27,7 +27,9 @@ Tasks are managed via `mise`. Run `mise tasks` to list all available tasks.
 | Lint | `mise run lint` | Lint all Swift sources (swiftlint --strict) |
 | Test | `mise run test` | Run the full test suite (`swift test`) |
 | Build | `mise run build` | Build the shim in debug mode (`swift build`) |
-| Run | `mise run run` | Build and start the shim with default options |
+| Build (release) | `mise run build:release` | Build the shim in release mode (`swift build --configuration release`) |
+| Shim Daemon | `mise run shim-daemon` | Build and start the shim daemon (debug) |
+| Shim Daemon (release) | `mise run shim-daemon:release` | Build and start the shim daemon (release) |
 | Clean spill | `mise run clean:spill` | Remove Swift index-build artefacts spilled to repo root |
 | Clean | `mise run clean` | Full clean: spill artefacts + `.build/` directory |
 

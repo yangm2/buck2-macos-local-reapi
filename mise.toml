@@ -16,14 +16,23 @@ depends = ["clean:spill"]
 run = "rm -rf .build"
 
 [tasks.build]
-description = "Build the shim (debug)"
+description = "Build the shim in debug mode"
 # PROTOC_PATH is required by the GRPCProtobufGenerator SPM plugin.
 run = "PROTOC_PATH=$(which protoc) swift build"
 
-[tasks.run]
-description = "Build and run the shim with defaults"
+[tasks."build:release"]
+description = "Build the shim in release mode"
+run = "PROTOC_PATH=$(which protoc) swift build --configuration release"
+
+[tasks."shim-daemon"]
+description = "Build and run the shim daemon (debug)"
 depends = ["build"]
 run = "swift run reapi-shim"
+
+[tasks."shim-daemon:release"]
+description = "Build and run the shim daemon (release)"
+depends = ["build:release"]
+run = "swift run --configuration release reapi-shim"
 
 [tasks.fmt]
 description = "Format all Swift sources in-place"
