@@ -504,7 +504,7 @@ flowchart TD
 | Linux containers only (no macOS containers) | Use Tart or `Virtualization.framework` directly for macOS-target builds |
 | No GPU passthrough to containers (as of macOS 26 beta) | GPU-dependent actions (ML training) routed to remote cluster |
 | macOS 26 required for full networking features | Mandate macOS 26 for developer machines using this workflow |
-| Default APFS is case-insensitive; Buck2's file model is case-sensitive | Wrong-case `srcs` declarations succeed locally but fail in the Linux RE container — the RE path acts as a correctness enforcer. For full local parity, develop on a case-sensitive APFS volume (`hdiutil create -fs APFS ...`). The CAS is unaffected: all blob paths are SHA-256 lowercase hex (`[0-9a-f]`), so case collisions are structurally impossible. |
+| Default APFS is case-insensitive; Buck2's file model is case-sensitive | The staging directory lives on host APFS and is bind-mounted into the container via VirtioFS. VirtioFS delegates all lookups to the host APFS daemon, so the guest inherits the host's case-folding — wrong-case references to staged input files succeed silently inside the container too. Case mismatches are only caught for files generated *inside* the container (on the native ext4/overlayfs). The only reliable enforcer is a case-sensitive APFS host volume (`hdiutil create -fs APFS ...`), which breaks the staging step itself when two REAPI input paths differ only in case. The CAS is unaffected: all blob paths are SHA-256 lowercase hex (`[0-9a-f]`), so case collisions are structurally impossible. |
 
 ---
 
@@ -1142,11 +1142,28 @@ flowchart TD
 
 ### Phase 1: Harden and Optimize (Still 8 GB MBP)
 
-- Add persistent ActionCache (SQLite) so cache hits survive daemon restarts.
-- Add worker-side action profiling: record peak memory per action category, use for right-sizing VM limits.
-- Improve input staging performance: explore VirtioFS mount vs. file copy for CAS blobs.
-- Test with slightly larger Verilator designs to find the memory ceiling.
-- Add `os_log` structured logging and basic diagnostics.
+**Prerequisites (verilator-example changes)**
+
+- Fix FST output path: `sim_main.cpp` currently hardcodes `runsim.fst` relative to the working directory. Make it a declared Buck2 output (passed as an argument or env var) so waveforms are accessible via `buck2 build` output and the build is fully hermetic.
+- Add a formal `buck2 test` target: replace the `command_alias` smoke test with a proper test rule that runs the simulation binary and asserts on exit code / stdout. Enables `buck2 test //src:...` as the Phase 1 validation command in place of manual inspection.
+
+**Shim**
+
+- Add persistent ActionCache (SQLite) so cache hits survive daemon restarts. The in-memory cache is lost on every restart, undermining the cache hit rate story.
+- Replace action profiling by argv pattern-matching (which never fires because Buck2 wraps all genrules in `bash -e`) with post-hoc resource tracking: record actual peak memory and wall time per completed action using OS-level measurement, accumulate in a local store, and use as input to VM limit heuristics.
+- Drop the VirtioFS-vs-file-copy exploration: staging now targets case-sensitive ephemeral APFS volumes (§4.7), which changes the framing from a performance question to a correctness question. VirtioFS semantics are the *problem* (host case-folding propagates to the guest), not a solution.
+- Add `--keep-failed-staging` CLI flag: retain the staging volume on non-zero exit for post-mortem inspection (`diskutil list` surfaces it by name; normal teardown is unchanged).
+- Add `os_log` structured logging and basic diagnostics, replacing the current `print()` calls.
+
+**Dependencies**
+
+- Migrate `grpc-swift` from `github.com/grpc/grpc-swift` (maintenance-only after 2.2.3) to the canonical v2 repo `github.com/grpc/grpc-swift-2` (active development, currently 2.3.0). Companion packages `grpc-swift-protobuf` and `grpc-swift-nio-transport` stay at their original URLs.
+- Bump `grpc-swift-protobuf` (→ 2.2.1) and `grpc-swift-nio-transport` (→ 2.5.0) to resolve the `ProtobufSerializer`/`ProtobufDeserializer` deprecation warnings in generated stubs.
+
+**Validation**
+
+- Test with a more complex Verilator design (parameterised module hierarchy) to find the practical memory ceiling on 8 GB hardware and validate the post-hoc resource tracking.
+- Confirm ActionCache persistence: `buck2 build`, restart shim, `buck2 build` again — second build should show 100% remote cache hits with zero container invocations.
 
 ### Phase 2: Scale Up (Mac mini M2 Pro / M4, 32+ GB)
 
