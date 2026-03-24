@@ -1,5 +1,54 @@
 # REAPI + Buck2 (2025-12-01) with Apple Containers on macOS 26
 
+## Prerequisites
+
+The following tools must be installed before building or developing this repo.
+Version numbers match the pins in `mise.toml` / `.swift-version`; install via `mise install` to get them automatically.
+
+### Build and dev (`mise run build`, `test`, `fmt`, `lint`)
+
+| Tool | Min version | Purpose | How to install |
+|---|---|---|---|
+| **macOS** | 26.0 (Tahoe) | `Virtualization.framework` + Apple Containers daemon | System upgrade |
+| **Xcode / Swift** | 6.2.4 | Swift 6.2 toolchain; `swift build`, `swift test` | `xcode-select --install` or Xcode 26+; or manage toolchains with **swiftly** (see below) |
+| **mise** | any recent | Task runner; pins all tool versions via `mise.toml` | `curl https://mise.run \| sh` |
+| **protoc** | 24.4 | Protocol Buffers compiler invoked by `GRPCProtobufGenerator` SPM plugin | `mise install` (via `mise.toml`) |
+| **SwiftFormat** | 0.60.1 | Source formatter (`mise run fmt`) | `mise install` |
+| **SwiftLint** | 0.63.2 | Linter (`mise run lint`) | `mise install` |
+| **Apple Containers** | 0.1+ | Container runtime daemon (`container-apiserver`) used at runtime by `LiveContainerBackend` | Bundled with macOS 26 or install from [github.com/apple/container](https://github.com/apple/container) |
+
+> `protoc` must be on `$PATH` when running `swift build` / `swift test` — mise handles this automatically. The `apple/container` Swift SDK packages (`ContainerAPIClient`, `ContainerResource`) are fetched by SPM and do not need a separate install step.
+
+#### Optional: swiftly for toolchain management
+
+[swiftly](https://github.com/swiftlang/swiftly) (from swift.org) is a command-line toolchain manager that can install and switch between Swift toolchains independently of Xcode:
+
+```sh
+# Install swiftly
+curl -L https://swiftlang.github.io/swiftly/swiftly-install.sh | bash
+
+# Install the pinned toolchain (reads .swift-version automatically)
+swiftly install
+```
+
+The VS Code Swift extension also recognises toolchains installed by swiftly — set **Swift: Path** in VS Code settings to the swiftly-managed toolchain, or let the extension auto-detect it via `.swift-version`.
+
+### Code coverage (`mise run test:coverage`)
+
+No additional installs required. `xcrun llvm-cov` is part of the Xcode Command Line Tools already needed for the build.
+
+### E2E tests (`mise run test:e2e`)
+
+| Tool | Min version | Purpose | How to install |
+|---|---|---|---|
+| **buck2** | any (calver) | Drives the `hello-genrule` fixture build | Download from [github.com/facebook/buck2/releases](https://github.com/facebook/buck2/releases) and put on `$PATH` |
+| **ubuntu:24.04 image** | — | Container image the shim executes actions inside (configurable via `$REAPI_IMAGE`) | `container pull ubuntu:24.04` |
+| **curl**, **git**, **nc**, **lsof** | macOS built-in | Fetch prelude hash, clone prelude, health-check port, kill stale processes | Included with macOS / Xcode CLT |
+
+> The e2e script auto-clones the buck2 prelude at the commit matching the installed `buck2` binary version, so the prelude does not need to be pinned manually.
+
+---
+
 ## Proposal Outline
 
 ---
