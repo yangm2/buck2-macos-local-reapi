@@ -1,5 +1,4 @@
 [tools]
-swift = "6.2.4"
 swiftformat = "0.60.1"
 swiftlint = "0.63.2"
 protoc = "24.4"
@@ -69,3 +68,11 @@ run = "bash scripts/e2e-test.sh"
 
 [settings]
 experimental = true
+# apple/container officially requires the Xcode-bundled Swift toolchain.
+# The swift.org swift-6.2.4-RELEASE distribution triggers a SIL verifier
+# crash in Flags.swift (assign_by_wrapper / Optional<String> type mismatch).
+# No upstream Swift compiler bug has been filed; apple/container closed the
+# report as unsupported configuration (apple/container#1291).
+# Keep .swift-version for the VS Code extension, but prevent mise from
+# reading it and pulling the swift.org toolchain.
+legacy_version_file_disable_tools = ["swift"]

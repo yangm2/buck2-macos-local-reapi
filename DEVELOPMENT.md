@@ -10,7 +10,7 @@ Version numbers match the pins in `mise.toml` / `.swift-version`; install via `m
 | Tool | Min version | Purpose | How to install |
 |---|---|---|---|
 | **macOS** | 26.0 (Tahoe) | `Virtualization.framework` + Apple Containers daemon | System upgrade |
-| **Xcode / Swift** | 6.2.4 | Swift 6.2 toolchain; `swift build`, `swift test` | `xcode-select --install` or Xcode 26+; or manage toolchains with **swiftly** (see below) |
+| **Xcode / Swift** | 6.2.4 | Swift 6.2 toolchain; `swift build`, `swift test` — **must be the Xcode-bundled toolchain** (swift.org distribution triggers a SIL crash in `apple/container`; upstream [issue #1291](https://github.com/apple/container/issues/1291)) | `xcode-select --install` or Xcode 26+; or manage toolchains with **swiftly** (see below) |
 | **mise** | any recent | Task runner; pins all tool versions via `mise.toml` | `curl https://mise.run \| sh` |
 | **protoc** | 24.4 | Protocol Buffers compiler invoked by `GRPCProtobufGenerator` SPM plugin | `mise install` (via `mise.toml`) |
 | **SwiftFormat** | 0.60.1 | Source formatter (`mise run fmt`) | `mise install` |
@@ -19,19 +19,11 @@ Version numbers match the pins in `mise.toml` / `.swift-version`; install via `m
 
 > `protoc` must be on `$PATH` when running `swift build` / `swift test` — mise handles this automatically. The `apple/container` Swift SDK packages (`ContainerAPIClient`, `ContainerResource`) are fetched by SPM and do not need a separate install step.
 
-#### Optional: swiftly for toolchain management
+#### Swift toolchain: use Xcode, not swiftly
 
-[swiftly](https://github.com/swiftlang/swiftly) (from swift.org) is a command-line toolchain manager that can install and switch between Swift toolchains independently of Xcode:
+> **Do not use [swiftly](https://github.com/swiftlang/swiftly) for this project.** Swiftly installs toolchains from swift.org, and the swift.org Swift 6.2.4 distribution triggers a SIL verifier crash in the `apple/container` dependency ([upstream issue #1291](https://github.com/apple/container/issues/1291)). The Xcode-bundled Swift 6.2.4 is required.
 
-```sh
-# Install swiftly
-curl -L https://swiftlang.github.io/swiftly/swiftly-install.sh | bash
-
-# Install the pinned toolchain (reads .swift-version automatically)
-swiftly install
-```
-
-The VS Code Swift extension also recognises toolchains installed by swiftly — set **Swift: Path** in VS Code settings to the swiftly-managed toolchain, or let the extension auto-detect it via `.swift-version`.
+Use the toolchain that ships with Xcode 26+ directly. The VS Code Swift extension auto-selects it when no swiftly-managed toolchain is active. `mise` is configured to ignore `.swift-version` for the same reason (see `[settings] legacy_version_file_disable_tools`).
 
 ### Code coverage (`mise run test:coverage`)
 
