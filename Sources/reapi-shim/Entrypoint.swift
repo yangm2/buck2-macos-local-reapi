@@ -50,6 +50,12 @@ struct REAPIShim: AsyncParsableCommand {
     )
     var remoteEndpoint: String?
 
+    @Option(
+        name: .long,
+        help: "Colon-separated path(s) to prepend to PATH inside container actions (e.g. /nix/var/nix/profiles/default/bin)"
+    )
+    var pathPrefix: String?
+
     mutating func run() async throws {
         let casURL = URL(fileURLWithPath: casDir)
         let cas = try ContentAddressableStorage(rootURL: casURL)
@@ -62,6 +68,7 @@ struct REAPIShim: AsyncParsableCommand {
             actionCache: cache,
             toolchainImage: image,
             keepFailedStaging: keepFailedStaging,
+            pathPrefix: pathPrefix,
             backend: LiveContainerBackend()
         )
         let remote: (any ActionExecutor)? = try remoteEndpoint.map { endpoint in
@@ -86,10 +93,12 @@ struct REAPIShim: AsyncParsableCommand {
         let casDirVal = casDir
         let actionCacheDirVal = actionCacheDir
         let imageVal = image
+        let pathPrefixVal = pathPrefix ?? "(none)"
         logger.info("reapi-shim listening on port \(portVal, privacy: .public)")
         logger.info("CAS: \(casDirVal, privacy: .public)")
         logger.info("ActionCache: \(actionCacheDirVal, privacy: .public)")
         logger.info("Image: \(imageVal, privacy: .public)")
+        logger.info("Path prefix: \(pathPrefixVal, privacy: .public)")
 
         try await server.serve()
     }

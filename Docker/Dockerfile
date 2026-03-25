@@ -46,6 +46,12 @@ ENV PATH="/nix/var/nix/profiles/default/bin:${PATH}"
 # nixpkgs-unstable tracks verilator closely; Ubuntu 24.04 apt is frozen at 5.020.
 RUN nix profile install nixpkgs#verilator
 
+# Symlink nix-installed verilator into /usr/local/bin so it is discoverable
+# from the hermetic PATH that REAPI clients (e.g. Buck2 genrule) inject.
+# The ENV PATH above helps interactive use, but REAPI Execute actions replace
+# the environment entirely with their own hermetic PATH that omits the nix prefix.
+RUN ln -sf "$(readlink -f /nix/var/nix/profiles/default/bin/verilator)" /usr/local/bin/verilator
+
 # Verify installation
 RUN verilator --version && clang++ --version && make --version
 

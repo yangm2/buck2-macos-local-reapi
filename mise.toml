@@ -66,6 +66,10 @@ xcrun llvm-cov report \
 description = "Run Layer 2 E2E test (local dev only — requires buck2, Apple Container, ubuntu:24.04)"
 run = "bash scripts/e2e-test.sh"
 
+[tasks."test:e2e:verilator"]
+description = "Realistic E2E test with verilator-example/for-shim (requires verilator-toolchain image)"
+run = "bash scripts/e2e-test-verilator.sh"
+
 [settings]
 experimental = true
 # apple/container officially requires the Xcode-bundled Swift toolchain.

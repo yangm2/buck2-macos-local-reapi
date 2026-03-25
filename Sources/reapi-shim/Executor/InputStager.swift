@@ -65,16 +65,27 @@ struct InputStager {
     /// `clonefile(2)` shares extents between the CAS blob and the staged file
     /// with copy-on-write semantics — no data is copied unless one side writes.
     /// It fails with `EXDEV` when src and dst live on different volumes, which
-    /// triggers the byte-copy fallback transparently.
+    /// triggers the byte-copy fallback.
+    ///
+    /// `EEXIST` is treated as a no-op: Buck2 genrule input trees routinely
+    /// reference the same CAS blob at multiple paths (e.g. a source file
+    /// appears under both its canonical path and the genrule `srcs/` directory).
+    /// Because all blobs are content-addressed, an already-present file with
+    /// the same name has identical content and can be safely skipped.
     private func stageFile(
         _ file: Build_Bazel_Remote_Execution_V2_FileNode,
         at fileURL: URL
     ) async throws {
         let src = cas.blobURL(for: file.digest).path
         let dst = fileURL.path
-        if Darwin.clonefile(src, dst, 0) != 0 {
+        let cloneResult = Darwin.clonefile(src, dst, 0)
+        if cloneResult != 0 {
+            if errno == EEXIST {
+                // File already staged (same content-addressed blob) — skip.
+                return
+            }
             let content = try await cas.fetch(file.digest)
-            try content.write(to: fileURL)
+            try content.write(to: fileURL, options: .atomic)
         }
         if file.isExecutable {
             try FileManager.default.setAttributes(

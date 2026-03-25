@@ -2,107 +2,134 @@
 
 ## Introduction
 
-The Local REAPI Shim is a Swift-based implementation of the Remote Execution API (REAPI) server that runs locally on macOS. It enables Buck2 to perform hermetic builds using Apple Containers, providing isolation and reproducibility without requiring a remote REAPI cluster.
+The Local REAPI Shim is a Swift-based REAPI server that runs locally on macOS. It enables Buck2 to perform hermetic builds using [Apple Containers](https://github.com/apple/container), providing container-level isolation and reproducibility without a remote REAPI cluster.
 
-This project bridges the gap between Buck2's REAPI client capabilities and local development workflows on macOS, allowing developers to benefit from remote execution semantics (caching, sandboxing, content-addressable storage) in a local environment.
+Each build action runs inside an ephemeral Linux VM (via `Virtualization.framework`), with inputs staged via VirtioFS and outputs collected back into a local content-addressable store. The ActionCache persists results across builds so unchanged actions are never re-executed.
 
-## When to Use It
+## Requirements
 
-- You're developing with Buck2 on macOS and want hermetic, reproducible builds
-- You need local sandboxing for build actions without setting up a full remote REAPI infrastructure
-- You're working on projects that require containerized execution environments
-- You want to test REAPI-based workflows locally before deploying to remote clusters
-- Your build targets need specific container images or platform properties
+- macOS 26.0 (Tahoe) or later
+- Xcode 26+ (Swift 6.2 — **must use the Xcode-bundled toolchain**, not swift.org)
+- Apple Containers runtime (`container-apiserver` launch agent)
+- [mise](https://mise.jdx.dev/) for tool version management
 
-## When Not to Use It
+## Quick Start
 
-- You're not using Buck2 or don't need REAPI functionality
-- You're on a non-macOS platform (requires macOS 26+ with Apple Containers)
-- You prefer non-hermetic local builds or have existing remote REAPI infrastructure
-- Your builds don't require container isolation
-- You need features not yet implemented in this local shim
+```sh
+# 1. Install pinned tools (swiftformat, swiftlint, protoc)
+mise install
 
-## How to Use It
+# 2. Build
+mise run build
 
-### Prerequisites
-
-- macOS 26.0 (Tahoe) or later with Apple Containers support
-- Xcode 6.2.4+ or Swift 6.2 toolchain
-- mise (for managing tool versions)
-- protoc 24.4
-- SwiftFormat 0.60.1 and SwiftLint 0.63.2 (for development)
-
-### Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yangm2/buck2-macos-local-reapi.git
-   cd buck2-macos-local-reapi
-   ```
-
-2. Install dependencies using mise:
-   ```bash
-   mise install
-   ```
-
-3. Build the shim:
-   ```bash
-   mise run build
-   ```
-
-### Running the Shim
-
-Start the REAPI server in debug mode:
-```bash
+# 3. Start the shim (debug)
 mise run shim-daemon
 ```
 
-For production use, run the release build:
-```bash
-mise run shim-daemon:release
+The shim listens on `grpc://localhost:8980` by default.
+
+## Configuration
+
+### `.buckconfig` (or `.buckconfig.local`)
+
+```ini
+[build]
+execution_platforms = root//platforms:default
+
+[buck2_re_client]
+engine_address       = grpc://localhost:8980
+action_cache_address = grpc://localhost:8980
+cas_address          = grpc://localhost:8980
+instance_name        = default
+tls                  = false
+
+[buck2]
+digest_algorithms = SHA256
 ```
 
-This will build and launch the shim with default configuration.
+### Execution platform (`platforms/defs.bzl`)
 
-### Configuration
-
-The shim can be configured via command-line arguments and environment variables. See the source code in `Sources/reapi-shim/` for available options.
-
-### Integration with Buck2
-
-Configure Buck2 to use the local shim as its REAPI endpoint. Update your `.buckconfig` or Starlark configuration to point to `localhost` on the shim's gRPC port.
-
-Example platform configuration:
 ```python
-# In your BUCK file or platform configuration
-remote_execution = {
-    "type": "grpc",
-    "address": "localhost:50051",  # Default shim port
-    "instance_name": "local",
-}
+CommandExecutorConfig(
+    local_enabled  = False,   # all actions go through the shim
+    remote_enabled = True,
+    remote_execution_properties = {
+        "OSFamily": "linux",
+        "ISA":      "aarch64",
+    },
+    remote_execution_use_case = "buck2-default",
+)
 ```
 
-### Testing
+### Selecting a container image per action
 
-Run the test suite:
-```bash
-mise run test
+The shim reads the standard `container-image` platform property to choose which OCI image to run each action in. If the property is absent, `--image` is used as the default.
+
+```python
+# In platforms/defs.bzl — per-action image selection
+CommandExecutorConfig(
+    remote_execution_properties = {
+        "OSFamily":        "linux",
+        "container-image": "docker://verilator-toolchain:latest",
+    },
+)
 ```
 
-For end-to-end testing with a real Buck2 project:
-```bash
-mise run test:e2e
+Both bare names (`ubuntu:24.04`) and the `docker://` scheme are accepted.
+
+### CLI options
+
+| Option | Default | Description |
+|---|---|---|
+| `--port` | `8980` | gRPC listen port |
+| `--image` | `verilator-toolchain:latest` | Default OCI image when `container-image` platform property is absent |
+| `--cas-dir` | `~/.local/share/reapi-shim/cas` | Filesystem CAS root |
+| `--action-cache-dir` | `~/.local/share/reapi-shim/action-cache` | ActionCache root |
+| `--keep-failed-staging` | off | Preserve staging dir on failure for post-mortem |
+| `--remote-endpoint` | — | Upstream REAPI endpoint for remote dispatch |
+| `--path-prefix` | — | Extra path(s) prepended to `PATH` inside containers (escape hatch — see below) |
+
+## Container image requirements
+
+Buck2 injects a hermetic `PATH` into every action:
+
+```
+/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ```
 
-See `TESTCASE.md` for details on the Verilator example test case.
+**Best practice:** symlink every build tool into `/usr/local/bin` inside your image so it is reachable from this path regardless of where the package manager installs it:
+
+```dockerfile
+# Example: tool installed by nix into a non-standard prefix
+RUN ln -sf "$(readlink -f /nix/var/nix/profiles/default/bin/mytool)" /usr/local/bin/mytool
+```
+
+**Escape hatch:** if you cannot modify the image, use `--path-prefix` to prepend additional directories to the container's `PATH`:
+
+```sh
+reapi-shim --image my-image:latest \
+           --path-prefix /nix/var/nix/profiles/default/bin
+```
+
+Prefer the Dockerfile approach — `--path-prefix` is specific to this shim and won't help with standard RE servers (BuildBuddy, BuildBarn, etc.).
+
+## Testing
+
+```sh
+mise run test           # unit tests
+mise run test:e2e       # basic genrule e2e (requires buck2, ubuntu:24.04 image)
+mise run test:e2e:verilator  # realistic Verilator e2e (requires verilator-toolchain image)
+mise run test:coverage  # unit tests + per-file coverage report
+```
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for full setup, coding guidelines, and architecture documentation.
 
 ## Contributions
 
-We welcome contributions! Please see [DEVELOPMENT.md](DEVELOPMENT.md) for detailed development setup, coding guidelines, and contribution guidelines.
+Please follow the guidelines in [DEVELOPMENT.md](DEVELOPMENT.md). Before opening a PR, ensure:
 
-### Quick Development Setup
-
-1. Follow the prerequisites in DEVELOPMENT.md
-2. Use `mise run fmt` to format code and `mise run lint` to check style
-3. Ensure all tests pass with `mise run test`
-4. Submit pull requests with clear descriptions of changes
+```sh
+mise run fmt:check
+mise run lint
+mise run test
+```

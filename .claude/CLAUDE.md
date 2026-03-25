@@ -32,6 +32,8 @@ Tasks are managed via `mise`. Run `mise tasks` to list all available tasks.
 | Shim Daemon (release) | `mise run shim-daemon:release` | Build and start the shim daemon (release) |
 | Clean spill | `mise run clean:spill` | Remove Swift index-build artefacts spilled to repo root |
 | Clean | `mise run clean` | Full clean: spill artefacts + `.build/` directory |
+| E2E test (hello) | `mise run test:e2e` | Basic genrule E2E test (requires buck2, Apple Container, ubuntu:24.04) |
+| E2E test (verilator) | `mise run test:e2e:verilator` | Realistic E2E test with verilator-example/for-shim (requires verilator-toolchain image) |
 
 Before committing, ensure `fmt:check`, `lint`, and `test` all pass.
 

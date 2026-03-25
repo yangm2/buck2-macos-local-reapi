@@ -29,15 +29,52 @@ Use the toolchain that ships with Xcode 26+ directly. The VS Code Swift extensio
 
 No additional installs required. `xcrun llvm-cov` is part of the Xcode Command Line Tools already needed for the build.
 
-### E2E tests (`mise run test:e2e`)
+### E2E tests (`mise run test:e2e`, `mise run test:e2e:verilator`)
 
 | Tool | Min version | Purpose | How to install |
 |---|---|---|---|
-| **buck2** | any (calver) | Drives the `hello-genrule` fixture build | Download from [github.com/facebook/buck2/releases](https://github.com/facebook/buck2/releases) and put on `$PATH` |
-| **ubuntu:24.04 image** | — | Container image the shim executes actions inside (configurable via `$REAPI_IMAGE`) | `container pull ubuntu:24.04` |
+| **buck2** | any (calver) | Drives the fixture builds | Download from [github.com/facebook/buck2/releases](https://github.com/facebook/buck2/releases) and put on `$PATH` |
+| **ubuntu:24.04 image** | — | Container image for the `hello-genrule` e2e test (configurable via `$REAPI_IMAGE`) | `container pull ubuntu:24.04` |
+| **verilator-toolchain image** | — | Toolchain image for the verilator e2e test | `./scripts/build-toolchain-image.sh` (see below) |
 | **curl**, **git**, **nc**, **lsof** | macOS built-in | Fetch prelude hash, clone prelude, health-check port, kill stale processes | Included with macOS / Xcode CLT |
 
-> The e2e script auto-clones the buck2 prelude at the commit matching the installed `buck2` binary version, so the prelude does not need to be pinned manually.
+> The e2e scripts auto-clone the buck2 prelude at the commit matching the installed `buck2` binary version, so the prelude does not need to be pinned manually.
+
+---
+
+## Container image requirements
+
+The shim executes every REAPI action inside a fresh OCI container VM. The container receives the action's environment variables verbatim from Buck2, which injects a **hermetic `PATH`**:
+
+```
+/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+```
+
+Any tool your build actions call must be reachable from this path. There are two ways to satisfy this:
+
+### Best practice: symlink tools into `/usr/local/bin`
+
+Symlink (or copy) every build tool into `/usr/local/bin` inside the image. This is the cleanest approach — the image is self-contained and works with any REAPI client, not just this shim.
+
+```dockerfile
+# After installing your tool (e.g. via nix, pip, cargo…):
+RUN ln -sf "$(readlink -f /path/to/installed/tool)" /usr/local/bin/tool
+```
+
+The `verilator-toolchain` image follows this pattern: `verilator` is installed via nix into `/nix/var/nix/profiles/default/bin/`, then symlinked to `/usr/local/bin/verilator`.
+
+### Escape hatch: `--path-prefix`
+
+If you cannot modify the container image (e.g. a third-party or pre-built image), pass `--path-prefix` to the shim with a colon-separated list of directories to prepend to `PATH`:
+
+```sh
+reapi-shim --image my-image:latest \
+           --path-prefix /opt/custom/bin:/nix/var/nix/profiles/default/bin
+```
+
+The shim inserts these directories at the front of whatever `PATH` value Buck2 sends, making tools at non-standard locations discoverable. This is a per-shim-operator override, not a property of the image itself.
+
+> **Prefer the Dockerfile approach.** `--path-prefix` only helps consumers using this specific shim; a standard RE server (BuildBuddy, BuildBarn, etc.) would still fail with the same image.
 
 ---
 

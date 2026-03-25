@@ -15,6 +15,12 @@ actor ContainerExecutor: ActionExecutor {
     let actionCache: ActionCache
     let toolchainImage: String
     let keepFailedStaging: Bool
+    /// Extra path segments to prepend to `PATH` inside container actions.
+    ///
+    /// Useful when the build toolchain is installed in a non-standard prefix
+    /// (e.g. `/nix/var/nix/profiles/default/bin`) that is absent from the
+    /// hermetic PATH that Buck2 sends via the REAPI `Command` message.
+    let pathPrefix: String?
 
     private let stagingBaseURL: URL
     private let profileStore = ResourceProfileStore()
@@ -26,12 +32,14 @@ actor ContainerExecutor: ActionExecutor {
         actionCache: ActionCache,
         toolchainImage: String,
         keepFailedStaging: Bool = false,
+        pathPrefix: String? = nil,
         backend: any ContainerBackend = LiveContainerBackend()
     ) {
         self.cas = cas
         self.actionCache = actionCache
         self.toolchainImage = toolchainImage
         self.keepFailedStaging = keepFailedStaging
+        self.pathPrefix = pathPrefix
         self.backend = backend
         stagingBaseURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("reapi-shim-staging")
@@ -75,12 +83,23 @@ actor ContainerExecutor: ActionExecutor {
         // 4. Determine container resource profile from prior observations
         let profile = await profileStore.profile(for: actionDigest.hash) ?? .conservative
 
-        // 5. Run the container
+        // 5. Resolve the image to use for this action.
+        //    The `container-image` platform property (convention shared with BuildBuddy,
+        //    BuildBarn, etc.) overrides the shim-level default.  Strip the `docker://`
+        //    scheme prefix that some clients include (e.g. `docker://ubuntu:24.04`).
+        let image = action.platform.properties
+            .first { $0.name == "container-image" }
+            .map { $0.value.hasPrefix("docker://") ? String($0.value.dropFirst(9)) : $0.value }
+            ?? toolchainImage
+
+        // 6. Run the container
+        logger.debug("image for \(actionDigest.hash.prefix(16), privacy: .public): \(image, privacy: .public)")
         let runResult = try await runContainer(
             actionHash: actionDigest.hash,
             command: command,
             stagingDir: stagingDir,
-            profile: profile
+            profile: profile,
+            image: image
         )
 
         // Preserve staging directory on failure when requested
@@ -89,7 +108,7 @@ actor ContainerExecutor: ActionExecutor {
             logger.info("staging preserved for post-mortem: \(stagingDir.path, privacy: .public)")
         }
 
-        // 6. Collect outputs from the staging directory back into CAS
+        // 7. Collect outputs from the staging directory back into CAS
         let collector = OutputCollector(cas: cas)
         let outputPaths = command.outputPaths.isEmpty
             ? command.outputFiles + command.outputDirectories
@@ -99,10 +118,10 @@ actor ContainerExecutor: ActionExecutor {
             workDir: stagingDir
         )
 
-        // 7–8. Store stdout/stderr and assemble ActionResult
+        // 8–9. Store stdout/stderr and assemble ActionResult
         let result = try await buildActionResult(runResult: runResult, outputFiles: outputFiles)
 
-        // 9. Cache successful results (exit code 0 only)
+        // 10. Cache successful results (exit code 0 only)
         if runResult.exitCode == 0 {
             await actionCache.put(actionDigest: actionDigest, result: result)
         }
@@ -151,14 +170,16 @@ actor ContainerExecutor: ActionExecutor {
         actionHash: String,
         command: Build_Bazel_Remote_Execution_V2_Command,
         stagingDir: URL,
-        profile: ActionProfile
+        profile: ActionProfile,
+        image: String
     ) async throws -> RunResult {
-        let containerId = "reapi-\(actionHash.prefix(12))-\(actionCounter)"
+        let containerId = "reapi-\(UUID().uuidString.lowercased().prefix(8))-\(actionHash.prefix(8))"
         let config = try await buildContainerConfig(
             containerId: containerId,
             command: command,
             stagingDir: stagingDir,
-            profile: profile
+            profile: profile,
+            image: image
         )
 
         let wallStart = Date()
@@ -180,8 +201,11 @@ actor ContainerExecutor: ActionExecutor {
         try? stderrPipe.fileHandleForWriting.close()
 
         // Drain I/O concurrently to prevent pipe-buffer deadlock while the process runs.
-        let stdoutTask = Task.detached { stdoutPipe.fileHandleForReading.readDataToEndOfFile() }
-        let stderrTask = Task.detached { stderrPipe.fileHandleForReading.readDataToEndOfFile() }
+        // Use the throwing readToEnd() variant (macOS 10.15.4+) instead of the ObjC
+        // readDataToEndOfFile(), which raises an uncatchable NSException on pipe errors
+        // (e.g. broken pipe when the container exits abruptly).
+        let stdoutTask = Task.detached { (try? stdoutPipe.fileHandleForReading.readToEnd()) ?? Data() }
+        let stderrTask = Task.detached { (try? stderrPipe.fileHandleForReading.readToEnd()) ?? Data() }
 
         // Poll memory stats concurrently every 250 ms; track peak usage.
         let capturedBackend = backend
@@ -223,16 +247,26 @@ actor ContainerExecutor: ActionExecutor {
         containerId: String,
         command: Build_Bazel_Remote_Execution_V2_Command,
         stagingDir: URL,
-        profile: ActionProfile
+        profile: ActionProfile,
+        image: String
     ) async throws -> ContainerConfiguration {
-        let imageDescription = try await backend.resolveImage(toolchainImage)
+        let imageDescription = try await backend.resolveImage(image)
         let workDir = command.workingDirectory.isEmpty
             ? "/workspace"
             : "/workspace/\(command.workingDirectory)"
+        var env = command.environmentVariables.map { "\($0.name)=\($0.value)" }
+        if let prefix = pathPrefix {
+            if let idx = env.firstIndex(where: { $0.hasPrefix("PATH=") }) {
+                let current = String(env[idx].dropFirst("PATH=".count))
+                env[idx] = "PATH=\(prefix):\(current)"
+            } else {
+                env.append("PATH=\(prefix):/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+            }
+        }
         let processConfig = ProcessConfiguration(
             executable: command.arguments[0],
             arguments: Array(command.arguments.dropFirst()),
-            environment: command.environmentVariables.map { "\($0.name)=\($0.value)" },
+            environment: env,
             workingDirectory: workDir
         )
         var config = ContainerConfiguration(id: containerId, image: imageDescription, process: processConfig)
