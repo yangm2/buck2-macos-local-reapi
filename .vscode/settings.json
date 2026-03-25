@@ -1,4 +1,8 @@
 {
     "swift.buildPath": ".build",
-    "PeerStudios.buck2-lsp-adapter.enable": false
+    "swift.buildArguments": ["-Xlinker", "-w"],
+    "PeerStudios.buck2-lsp-adapter.enable": false,
+    "swift.swiftEnvironmentVariables": {
+        "PROTOC_PATH": "$HOME/bin/protoc"
+    }
 }
