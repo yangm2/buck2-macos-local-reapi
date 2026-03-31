@@ -35,7 +35,7 @@ No additional installs required. `xcrun llvm-cov` is part of the Xcode Command L
 |---|---|---|---|
 | **buck2** | any (calver) | Drives the fixture builds | Download from [github.com/facebook/buck2/releases](https://github.com/facebook/buck2/releases) and put on `$PATH` |
 | **ubuntu:24.04 image** | — | Container image for the `hello-genrule` e2e test (configurable via `$REAPI_IMAGE`) | `container pull ubuntu:24.04` |
-| **verilator-toolchain image** | — | Toolchain image for the verilator e2e test | `./scripts/build-toolchain-image.sh` (see below) |
+| **verilator-toolchain image** | — | Toolchain image for the verilator e2e test | Built automatically by `mise run test:e2e:verilator`; or build manually with `mise run build:toolchain-image` |
 | **curl**, **git**, **nc**, **lsof** | macOS built-in | Fetch prelude hash, clone prelude, health-check port, kill stale processes | Included with macOS / Xcode CLT |
 
 > The e2e scripts auto-clone the buck2 prelude at the commit matching the installed `buck2` binary version, so the prelude does not need to be pinned manually.
@@ -1283,7 +1283,57 @@ flowchart TD
 10. **Cost modeling**: For teams evaluating this architecture, what's the break-even point where a local Mac fleet (Tier 2) becomes more cost-effective than cloud-based remote execution (Tier 3)?
 11. **Verilator-specific: multi-threaded codegen**: Verilator can generate multi-threaded C++ simulation code (`--threads`). How does this interact with the VM's vCPU allocation? Should the VM's `--cpus` match the Verilator thread count?
 12. **Verilator-specific: generated file count**: For larger designs, Verilator generates many C++ files. Does the per-action model (one compilation per file) interact well with the ephemeral VM approach, or should the worker batch multiple compilations into a single VM invocation to amortize startup cost?
-13. **Minimal REAPI surface**: What is the exact subset of REAPI RPCs that Buck2's `re_grpc` crate actually calls? Documenting this enables the shim to implement only what's needed, keeping the codebase small.
+13. ~~**Minimal REAPI surface**: What is the exact subset of REAPI RPCs that Buck2's `re_grpc` crate actually calls?~~ ✓ Resolved — see §11 REAPI implementation status table.
+
+## 11. REAPI implementation status
+
+The tables below track which REAPI v2 service methods and protocol features are implemented, stubbed, deferred, or out of scope. "Phase" refers to the roadmap phase in §9.
+
+### Services and RPCs
+
+| Service | RPC | Status | Phase | Notes |
+|---------|-----|--------|-------|-------|
+| **Capabilities** | `GetCapabilities` | ✅ Implemented | 0 | Called by Buck2 at session start to negotiate digest function, batch size, and API version. Advertises SHA-256, 4 MiB batch limit, REAPI v2, execution enabled. |
+| **ActionCache** | `GetActionResult` | ✅ Implemented | 0 | Queried by Buck2 before every action. Filesystem-backed; survives shim restarts. |
+| **ActionCache** | `UpdateActionResult` | ✅ Implemented | 1 | Allows clients to prime the cache directly. Buck2 calls this to populate the action cache from a prior build. |
+| **CAS** | `FindMissingBlobs` | ✅ Implemented | 0 | Required for the upload protocol: Buck2 queries which blobs the server doesn't have before uploading. Empty blob (`size_bytes=0`) always reported present per spec. |
+| **CAS** | `BatchUpdateBlobs` | ✅ Implemented | 0 | Blob upload (≤ 4 MiB per batch). Per-blob status in response; atomic writes. |
+| **CAS** | `BatchReadBlobs` | ✅ Implemented | 0 | Blob download for cache-hit outputs. Per-blob error isolation: `NOT_FOUND` vs `INTERNAL`. |
+| **CAS** | `GetTree` | ⚠️ Stubbed | — | Returns empty stream. Not called by Buck2's `re_grpc` crate; directory trees are reconstructed client-side from `BatchReadBlobs` results. |
+| **CAS** | `SplitBlob` | ❌ Won't implement | — | Blob chunking extension. Not called by Buck2; batch API sufficient for blobs ≤ 4 MiB. Returns `UNIMPLEMENTED`. |
+| **CAS** | `SpliceBlob` | ❌ Won't implement | — | Chunked reassembly extension. Same rationale as `SplitBlob`. Returns `UNIMPLEMENTED`. |
+| **Execution** | `Execute` | ✅ Implemented | 0 | Core execution path. Streams a pending `Operation` immediately, runs the action in an ephemeral Apple Container VM, then streams the completed or failed `Operation`. |
+| **Execution** | `WaitExecution` | ✅ Implemented | 0 | Resumes a previously issued operation by name. Suspends via `CheckedContinuation` until the in-flight `Execute` call delivers its result. |
+| **ByteStream** | `Read` | ❌ Deferred | 3 | Large-blob download (> 4 MiB). Not called by Buck2 in practice; deferred to Phase 3 (full CAS). |
+| **ByteStream** | `Write` | ❌ Deferred | 3 | Large-blob upload (> 4 MiB). Same rationale as `Read`. |
+| **ByteStream** | `QueryWriteStatus` | ❌ Deferred | 3 | Resumable upload status. Depends on `Write`. |
+| **Operations** | `GetOperation` | ❌ Won't implement | — | Not called by Buck2; `WaitExecution` covers operation resumption entirely. |
+| **Operations** | `ListOperations` | ❌ Won't implement | — | Not called by Buck2. |
+| **Operations** | `DeleteOperation` | ❌ Won't implement | — | Not called by Buck2. |
+| **Operations** | `CancelOperation` | ❌ Won't implement | — | Not called by Buck2. Cancellation is handled by closing the gRPC stream. |
+
+### Protocol features and request fields
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `ExecuteRequest.skip_cache_lookup` | ✅ Implemented | Forwarded to `ContainerExecutor`; bypasses `ActionCache.get` when set. |
+| `ExecuteRequest.execution_policy` (priority) | ❌ Ignored | Buck2 does not set this for local RE targets. All actions run at equal priority. |
+| `GetActionResultRequest.inline_stdout/stderr` | ❌ Not implemented | Response always returns digest references, never inline bytes. Buck2 does not set these flags. |
+| `container-image` platform property | ✅ Implemented | Per-action OCI image selection. Strips `docker://` prefix. Falls back to `--image` CLI flag. |
+| `OSFamily` platform property | ✅ Implemented | Checked by `PlatformRouter` to decide local vs remote executor routing. |
+| `ISA` platform property | ✅ Accepted | Included in the remote execution profile when forwarding; not used for local routing. |
+| `requires-gpu` platform property | ✅ Implemented | Routes to remote executor when `true` (GPU unavailable locally). |
+| `min-ram` platform property | ✅ Implemented | Routes to remote executor when value exceeds local VM ceiling (16 GiB). |
+| Instance names | ✅ Accepted, ignored | Passed by Buck2 (`instance_name = default`); not validated or used for routing. |
+| Output files (`output_files`) | ✅ Implemented | Collected by `OutputCollector`, stored in CAS, returned in `ActionResult`. |
+| Output directories (`output_directories`) | ✅ Implemented | Recursively collected; top-level directory entries returned. |
+| Output symlinks (`output_symlinks`) | ❌ Not collected | Symlinks produced by actions are silently dropped. `symlinkAbsolutePathStrategy = .disallowed` advertised. |
+| `NodeProperties` (permissions, ownership) | ⚠️ Partial | Executable bit (`is_executable`) captured; all other POSIX metadata (ownership, xattrs, mode bits) discarded. |
+| Digest functions | ✅ SHA-256 only | `digestFunctions = [.sha256]` advertised. No MD5, SHA-1, BLAKE3, or VSO. |
+| Blob compression | ❌ Not supported | `supportedCompressors` not advertised; all transfers uncompressed. Deferred to Phase 3. |
+| Stdout/stderr capture | ✅ Implemented | Captured from container pipes, stored as CAS blobs, returned as `stdout_digest`/`stderr_digest`. |
+| Exit code propagation | ✅ Implemented | Container exit code returned as `ActionResult.exit_code`; non-zero exits are not cached. |
+| TLS | ❌ Not supported | Shim listens plaintext only (`grpc://`). TLS termination can be added via a reverse proxy. |
 
 ---
 

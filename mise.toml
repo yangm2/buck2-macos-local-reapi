@@ -66,8 +66,13 @@ xcrun llvm-cov report \
 description = "Run Layer 2 E2E test (local dev only — requires buck2, Apple Container, ubuntu:24.04)"
 run = "bash scripts/e2e-test.sh"
 
+[tasks."build:toolchain-image"]
+description = "Build the verilator-toolchain OCI image for Apple Container VMs"
+run = "bash scripts/build-toolchain-image.sh"
+
 [tasks."test:e2e:verilator"]
-description = "Realistic E2E test with verilator-example/for-shim (requires verilator-toolchain image)"
+description = "Realistic E2E test with verilator-example/for-shim (builds toolchain image first)"
+depends = ["build:toolchain-image"]
 run = "bash scripts/e2e-test-verilator.sh"
 
 [settings]

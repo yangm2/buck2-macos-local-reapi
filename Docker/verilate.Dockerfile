@@ -1,39 +1,22 @@
-# Combined verilator-toolchain image for the e2e test (Apple Container VMs, arm64 Linux).
+# Minimal verilate-toolchain image: SV/Verilog → C++ codegen only.
 #
-# Bundles both the Verilator codegen tool and the C++ compiler toolchain so that
-# all action types (verilate, compile, link, test) can run in a single image.
-# Used by scripts/e2e-test-verilator.sh and the verilator-example for-shim branch.
+# Used for the verilate action (verilator codegen stage).
+# Does NOT include the C++ compiler toolchain; compile/link actions
+# use compile.Dockerfile instead.
 #
-# For per-action image selection (smaller images, faster builds) see:
-#   Docker/verilate.Dockerfile  — verilator + python3 only (codegen actions)
-#   Docker/compile.Dockerfile   — clang/g++/make/zlib only (compile/link actions)
-# Per-action selection requires adding `container-image` platform properties to
-# the BUCK targets in verilator-example; ubuntu:24.04 suffices for test execution.
-#
-# Build:  container build -t verilator-toolchain:latest Docker/
-# Verify: container run --rm verilator-toolchain:latest verilator --version
+# Build:  container build -t verilate-toolchain:latest -f Docker/verilate.Dockerfile Docker/
+# Verify: container run --rm verilate-toolchain:latest verilator --version
 
 FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Install nix prerequisites and the C++ runtime toolchain used by generated Makefiles
+# TLS certificates (nix installer), curl/xz (nix), python3 (verilator_includer at codegen time)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # TLS root certificates (required by the nix installer and channel fetches)
     ca-certificates \
-    # nix installer prerequisites
     curl \
     xz-utils \
-    # C++ toolchain (invoked by Verilator-generated Makefiles at action runtime)
-    # g++ is the default $(CXX) in Verilator-generated Makefiles
-    clang \
-    g++ \
-    libstdc++-13-dev \
-    make \
-    # python3 is used by verilator_includer at compile time
     python3 \
-    # zlib1g-dev provides zlib.h required by verilated_fst_c.cpp (FST tracing)
-    zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install nix via the DeterminateSystems installer, which supports running as
@@ -60,7 +43,7 @@ RUN nix profile install nixpkgs#verilator
 RUN ln -sf "$(readlink -f /nix/var/nix/profiles/default/bin/verilator)" /usr/local/bin/verilator
 
 # Verify installation
-RUN verilator --version && clang++ --version && make --version
+RUN verilator --version
 
 # Default working directory for REAPI input root
 WORKDIR /workspace
