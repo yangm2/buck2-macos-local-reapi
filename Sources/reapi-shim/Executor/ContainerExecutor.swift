@@ -5,6 +5,15 @@ import SwiftProtobuf
 
 private let logger = Logger(subsystem: "dev.reapi-shim", category: "Executor")
 
+private enum Constants {
+    /// Platform property key for per-action OCI image selection (BuildBuddy/BuildBarn convention).
+    static let containerImageProperty = "container-image"
+    /// Default hermetic PATH injected into actions that don't include PATH in their environment.
+    static let defaultHermeticPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    /// Exit code produced by SIGKILL (128 + 9), typically indicating OOM termination.
+    static let sigkillExitCode: Int32 = 137
+}
+
 /// Executes REAPI actions inside ephemeral Apple Container VMs.
 ///
 /// Each action follows the lifecycle: stage inputs → launch container → capture outputs →
@@ -88,7 +97,7 @@ actor ContainerExecutor: ActionExecutor {
         //    BuildBarn, etc.) overrides the shim-level default.  Strip the `docker://`
         //    scheme prefix that some clients include (e.g. `docker://ubuntu:24.04`).
         let image = action.platform.properties
-            .first { $0.name == "container-image" }
+            .first { $0.name == Constants.containerImageProperty }
             .map { $0.value.hasPrefix("docker://") ? String($0.value.dropFirst(9)) : $0.value }
             ?? toolchainImage
 
@@ -132,14 +141,15 @@ actor ContainerExecutor: ActionExecutor {
         runResult: RunResult,
         outputFiles: [Build_Bazel_Remote_Execution_V2_OutputFile]
     ) async throws -> Build_Bazel_Remote_Execution_V2_ActionResult {
-        let stdoutDigest = try await cas.store(runResult.stdout)
-        let stderrDigest = try await cas.store(runResult.stderr)
+        async let stdoutDigest = cas.store(runResult.stdout)
+        async let stderrDigest = cas.store(runResult.stderr)
+        let (stdout, stderr) = try await (stdoutDigest, stderrDigest)
 
         var result = Build_Bazel_Remote_Execution_V2_ActionResult()
         result.exitCode = runResult.exitCode
         result.outputFiles = outputFiles
-        result.stdoutDigest = stdoutDigest
-        result.stderrDigest = stderrDigest
+        result.stdoutDigest = stdout
+        result.stderrDigest = stderr
 
         var meta = Build_Bazel_Remote_Execution_V2_ExecutedActionMetadata()
         meta.worker = "local-apple-container"
@@ -259,7 +269,7 @@ actor ContainerExecutor: ActionExecutor {
                 let current = String(env[idx].dropFirst("PATH=".count))
                 env[idx] = "PATH=\(prefix):\(current)"
             } else {
-                env.append("PATH=\(prefix):/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+                env.append("PATH=\(prefix):\(Constants.defaultHermeticPath)")
             }
         }
         let processConfig = ProcessConfiguration(
@@ -284,7 +294,7 @@ actor ContainerExecutor: ActionExecutor {
             // Exit code 137 = 128 + SIGKILL(9), indicating an OOM or forced termination.
             let classified = ErrorClassifier.classify(
                 exitCode: exitCode,
-                signal: exitCode == 137 ? 9 : nil,
+                signal: exitCode == Constants.sigkillExitCode ? SIGKILL : nil,
                 stderr: text,
                 memoryLimitMB: profile.memoryMB,
                 containerError: nil

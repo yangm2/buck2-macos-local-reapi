@@ -58,10 +58,8 @@ struct PlatformRouter: ActionExecutor {
                 break
             }
         }
-        let props = Dictionary(
-            uniqueKeysWithValues: platform.properties.map { ($0.name, $0.value) }
-        )
-        if let minRam = props["min-ram"].flatMap(Int.init), minRam > 16 * 1024 {
+        let minRam = platform.properties.first(where: { $0.name == "min-ram" }).flatMap { Int($0.value) }
+        if let minRam, minRam > 16 * 1024 {
             return true
         }
         return false

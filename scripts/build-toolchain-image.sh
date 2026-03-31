@@ -36,9 +36,13 @@ verify_image() {
     local tag="$1"
     shift
     echo "Verifying $tag ..."
+    # Join all commands with ' && ' and run in a single container to avoid
+    # per-command cold-start overhead and to safely handle multi-word commands.
+    local joined=""
     for cmd in "$@"; do
-        container run --rm "$tag" $cmd
+        joined="${joined:+$joined && }$cmd"
     done
+    container run --rm "$tag" sh -c "$joined"
 }
 
 if [[ "${1:-}" == "--all" ]]; then

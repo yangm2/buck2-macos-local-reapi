@@ -16,10 +16,13 @@ import SwiftProtobuf
 final class LiveRemoteREAPIBackend: RemoteREAPIBackend, @unchecked Sendable {
     private let grpcClient: GRPCClient<HTTP2ClientTransport.Posix>
     private let runTask: Task<Void, Error>
+    private let casClient: Build_Bazel_Remote_Execution_V2_ContentAddressableStorage
+        .Client<HTTP2ClientTransport.Posix>
 
     init(grpcClient: GRPCClient<HTTP2ClientTransport.Posix>) {
         self.grpcClient = grpcClient
         runTask = Task { try await grpcClient.runConnections() }
+        casClient = .init(wrapping: grpcClient)
     }
 
     deinit {
@@ -30,8 +33,6 @@ final class LiveRemoteREAPIBackend: RemoteREAPIBackend, @unchecked Sendable {
     func findMissingBlobs(
         _ digests: [Build_Bazel_Remote_Execution_V2_Digest]
     ) async throws -> [Build_Bazel_Remote_Execution_V2_Digest] {
-        let casClient = Build_Bazel_Remote_Execution_V2_ContentAddressableStorage
-            .Client(wrapping: grpcClient)
         var req = Build_Bazel_Remote_Execution_V2_FindMissingBlobsRequest()
         req.blobDigests = digests
         let resp = try await casClient.findMissingBlobs(request: .init(message: req))
@@ -41,8 +42,6 @@ final class LiveRemoteREAPIBackend: RemoteREAPIBackend, @unchecked Sendable {
     func batchUpdateBlobs(
         _ entries: [(Build_Bazel_Remote_Execution_V2_Digest, Data)]
     ) async throws {
-        let casClient = Build_Bazel_Remote_Execution_V2_ContentAddressableStorage
-            .Client(wrapping: grpcClient)
         var req = Build_Bazel_Remote_Execution_V2_BatchUpdateBlobsRequest()
         for (digest, data) in entries {
             var entry = Build_Bazel_Remote_Execution_V2_BatchUpdateBlobsRequest.Request()

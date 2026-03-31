@@ -65,9 +65,8 @@ struct OutputCollector {
         )
         for item in contents {
             let itemPath = relativePath + "/" + item.lastPathComponent
-            var isDir: ObjCBool = false
-            FileManager.default.fileExists(atPath: item.path, isDirectory: &isDir)
-            if isDir.boolValue {
+            let isDir = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            if isDir {
                 let sub = try await collectDirectory(at: item, relativePath: itemPath)
                 outputs.append(contentsOf: sub)
             } else {

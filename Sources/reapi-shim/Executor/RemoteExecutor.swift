@@ -68,9 +68,17 @@ actor RemoteExecutor: ActionExecutor {
         let allDigests = try await Self.collectDigests(for: actionDigest, cas: localCAS)
         let missing = try await remote.findMissingBlobs(allDigests)
         if !missing.isEmpty {
-            var entries: [(Build_Bazel_Remote_Execution_V2_Digest, Data)] = []
-            for digest in missing {
-                try await entries.append((digest, localCAS.fetch(digest)))
+            let entries = try await withThrowingTaskGroup(
+                of: (Build_Bazel_Remote_Execution_V2_Digest, Data).self
+            ) { group in
+                for digest in missing {
+                    group.addTask { try (digest, await self.localCAS.fetch(digest)) }
+                }
+                var result: [(Build_Bazel_Remote_Execution_V2_Digest, Data)] = []
+                for try await entry in group {
+                    result.append(entry)
+                }
+                return result
             }
             try await remote.batchUpdateBlobs(entries)
         }
