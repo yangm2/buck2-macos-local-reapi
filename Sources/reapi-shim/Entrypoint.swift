@@ -52,7 +52,7 @@ struct REAPIShim: AsyncParsableCommand {
 
     @Option(
         name: .long,
-        help: "Colon-separated path(s) to prepend to PATH inside container actions (e.g. /nix/var/nix/profiles/default/bin)"
+        help: "Colon-separated path(s) to prepend to PATH inside container actions"
     )
     var pathPrefix: String?
 

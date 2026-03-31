@@ -109,11 +109,10 @@ actor ContainerExecutor: ActionExecutor {
         }
 
         // 7. Collect outputs from the staging directory back into CAS
-        let collector = OutputCollector(cas: cas)
         let outputPaths = command.outputPaths.isEmpty
             ? command.outputFiles + command.outputDirectories
             : command.outputPaths
-        let outputFiles = try await collector.collect(
+        let outputFiles = try await OutputCollector(cas: cas).collect(
             outputPaths: outputPaths,
             workDir: stagingDir
         )
